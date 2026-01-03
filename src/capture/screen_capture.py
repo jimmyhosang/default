@@ -252,10 +252,16 @@ class CaptureManager:
     This is the main entry point for the System of Record layer.
     """
 
-    def __init__(self, enable_screen: bool = True, enable_clipboard: bool = True):
+    def __init__(
+        self,
+        enable_screen: bool = True,
+        enable_clipboard: bool = True,
+        enable_file_watcher: bool = True
+    ):
         self.sources = {}
         self.enable_screen = enable_screen
         self.enable_clipboard = enable_clipboard
+        self.enable_file_watcher = enable_file_watcher
 
         if enable_screen:
             self.screen_capture = ScreenCapture()
@@ -263,6 +269,10 @@ class CaptureManager:
         if enable_clipboard:
             from .clipboard_monitor import ClipboardMonitor
             self.clipboard_monitor = ClipboardMonitor()
+
+        if enable_file_watcher:
+            from .file_watcher import FileWatcher
+            self.file_watcher = FileWatcher()
 
     async def start_all(self):
         """Start all capture sources."""
@@ -274,6 +284,9 @@ class CaptureManager:
         if self.enable_clipboard:
             tasks.append(self.clipboard_monitor.run())
 
+        if self.enable_file_watcher:
+            tasks.append(self.file_watcher.run())
+
         await asyncio.gather(*tasks)
 
     def stop_all(self):
@@ -283,6 +296,9 @@ class CaptureManager:
 
         if self.enable_clipboard:
             self.clipboard_monitor.stop()
+
+        if self.enable_file_watcher:
+            self.file_watcher.stop()
 
 
 # CLI interface
