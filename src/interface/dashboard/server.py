@@ -92,7 +92,10 @@ async def get_timeline(
     # Calculate date threshold
     threshold = (datetime.now() - timedelta(days=days)).isoformat()
 
-    if source_type:
+    results = []
+
+    # Query semantic_content table
+    if source_type and source_type != 'screen':
         cursor.execute("""
             SELECT id, content, source_type, source_id, timestamp, metadata
             FROM semantic_content
@@ -100,7 +103,7 @@ async def get_timeline(
             ORDER BY timestamp DESC
             LIMIT ?
         """, (threshold, source_type, limit))
-    else:
+    elif not source_type:
         cursor.execute("""
             SELECT id, content, source_type, source_id, timestamp, metadata
             FROM semantic_content
@@ -109,17 +112,53 @@ async def get_timeline(
             LIMIT ?
         """, (threshold, limit))
 
-    results = []
-    for row in cursor.fetchall():
-        results.append({
-            'id': row[0],
-            'content': row[1][:500] + "..." if len(row[1]) > 500 else row[1],
-            'content_preview': row[1][:200] + "..." if len(row[1]) > 200 else row[1],
-            'source_type': row[2],
-            'source_id': row[3],
-            'timestamp': row[4],
-            'metadata': json.loads(row[5]) if row[5] else {}
-        })
+    if source_type != 'screen':
+        for row in cursor.fetchall():
+            results.append({
+                'id': row[0],
+                'content': row[1][:500] + "..." if len(row[1]) > 500 else row[1],
+                'content_preview': row[1][:200] + "..." if len(row[1]) > 200 else row[1],
+                'source_type': row[2],
+                'source_id': row[3],
+                'timestamp': row[4],
+                'metadata': json.loads(row[5]) if row[5] else {}
+            })
+
+    # Query captures table (screen captures)
+    if source_type == 'screen' or not source_type:
+        try:
+            cursor.execute("""
+                SELECT id, extracted_text, timestamp, active_window, active_app, metadata
+                FROM captures
+                WHERE timestamp >= ?
+                ORDER BY timestamp DESC
+                LIMIT ?
+            """, (threshold, limit))
+
+            for row in cursor.fetchall():
+                content = row[1] or ""
+                results.append({
+                    'id': f"screen_{row[0]}",
+                    'content': content[:500] + "..." if len(content) > 500 else content,
+                    'content_preview': content[:200] + "..." if len(content) > 200 else content,
+                    'source_type': 'screen',
+                    'source_id': row[0],
+                    'timestamp': row[2],
+                    'metadata': {
+                        'active_window': row[3],
+                        'active_app': row[4],
+                        **(json.loads(row[5]) if row[5] else {})
+                    }
+                })
+        except sqlite3.OperationalError:
+            # captures table doesn't exist yet
+            pass
+
+    # Sort all results by timestamp
+    results.sort(key=lambda x: x['timestamp'], reverse=True)
+
+    # Apply limit to combined results
+    results = results[:limit]
 
     conn.close()
     return results
@@ -144,10 +183,57 @@ async def search_content(
     Returns:
         Dictionary with search results and metadata
     """
+    import sqlite3
+
+    results = []
+
+    # Search semantic_content using store methods
     if semantic:
         results = store.semantic_search(q, limit=limit)
     else:
-        results = store.search(q, source_type=source_type, limit=limit)
+        if source_type and source_type != 'screen':
+            results = store.search(q, source_type=source_type, limit=limit)
+        elif not source_type:
+            results = store.search(q, limit=limit)
+
+    # Also search captures table (screen captures) for text search
+    if not semantic and (source_type == 'screen' or not source_type):
+        conn = sqlite3.connect(store.db_path)
+        cursor = conn.cursor()
+
+        try:
+            cursor.execute("""
+                SELECT c.id, c.timestamp, c.extracted_text, c.active_window, c.active_app, c.metadata
+                FROM captures c
+                JOIN captures_fts fts ON c.id = fts.rowid
+                WHERE captures_fts MATCH ?
+                ORDER BY c.timestamp DESC
+                LIMIT ?
+            """, (q, limit))
+
+            for row in cursor.fetchall():
+                content = row[2] or ""
+                results.append({
+                    'id': f"screen_{row[0]}",
+                    'content': content,
+                    'source_type': 'screen',
+                    'source_id': row[0],
+                    'timestamp': row[1],
+                    'metadata': {
+                        'active_window': row[3],
+                        'active_app': row[4],
+                        **(json.loads(row[5]) if row[5] else {})
+                    }
+                })
+        except sqlite3.OperationalError:
+            # captures_fts table doesn't exist yet
+            pass
+
+        conn.close()
+
+    # Sort by timestamp and limit
+    results.sort(key=lambda x: x['timestamp'], reverse=True)
+    results = results[:limit]
 
     return {
         'query': q,
@@ -273,32 +359,83 @@ async def get_stats() -> Dict[str, Any]:
     conn = sqlite3.connect(store.db_path)
     cursor = conn.cursor()
 
-    # Content by day (last 7 days)
+    # Get screen capture count
+    screen_count = 0
+    try:
+        cursor.execute("SELECT COUNT(*) FROM captures")
+        screen_count = cursor.fetchone()[0]
+    except sqlite3.OperationalError:
+        pass
+
+    # Update stats with screen captures
+    if 'by_source' not in stats:
+        stats['by_source'] = {}
+    stats['by_source']['screen'] = screen_count
+    stats['total_content'] = stats.get('total_content', 0) + screen_count
+
+    # Content by day (last 7 days) - combine semantic_content and captures
+    daily_counts = {}
+
+    # Get from semantic_content
     cursor.execute("""
         SELECT DATE(timestamp) as day, COUNT(*) as count
         FROM semantic_content
         WHERE timestamp >= datetime('now', '-7 days')
         GROUP BY day
-        ORDER BY day
     """)
-    daily_counts = [{'date': row[0], 'count': row[1]} for row in cursor.fetchall()]
+    for row in cursor.fetchall():
+        daily_counts[row[0]] = row[1]
 
-    # Content by hour (last 24 hours)
+    # Get from captures
+    try:
+        cursor.execute("""
+            SELECT DATE(timestamp) as day, COUNT(*) as count
+            FROM captures
+            WHERE timestamp >= datetime('now', '-7 days')
+            GROUP BY day
+        """)
+        for row in cursor.fetchall():
+            daily_counts[row[0]] = daily_counts.get(row[0], 0) + row[1]
+    except sqlite3.OperationalError:
+        pass
+
+    daily_activity = [{'date': k, 'count': v} for k, v in sorted(daily_counts.items())]
+
+    # Content by hour (last 24 hours) - combine semantic_content and captures
+    hourly_counts = {}
+
+    # Get from semantic_content
     cursor.execute("""
         SELECT strftime('%H', timestamp) as hour, COUNT(*) as count
         FROM semantic_content
         WHERE timestamp >= datetime('now', '-1 day')
         GROUP BY hour
-        ORDER BY hour
     """)
-    hourly_counts = [{'hour': int(row[0]), 'count': row[1]} for row in cursor.fetchall()]
+    for row in cursor.fetchall():
+        hourly_counts[int(row[0])] = row[1]
+
+    # Get from captures
+    try:
+        cursor.execute("""
+            SELECT strftime('%H', timestamp) as hour, COUNT(*) as count
+            FROM captures
+            WHERE timestamp >= datetime('now', '-1 day')
+            GROUP BY hour
+        """)
+        for row in cursor.fetchall():
+            hour = int(row[0])
+            hourly_counts[hour] = hourly_counts.get(hour, 0) + row[1]
+    except sqlite3.OperationalError:
+        pass
+
+    hourly_activity = [{'hour': k, 'count': v} for k, v in sorted(hourly_counts.items())]
 
     conn.close()
 
     return {
         **stats,
-        'daily_activity': daily_counts,
-        'hourly_activity': hourly_counts
+        'daily_activity': daily_activity,
+        'hourly_activity': hourly_activity
     }
 
 
