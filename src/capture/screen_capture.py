@@ -11,7 +11,10 @@ what's on screen rather than requiring integrations with every app.
 
 import asyncio
 import hashlib
+import logging
+import signal
 import sqlite3
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -19,14 +22,34 @@ import json
 
 # Note: Install these dependencies:
 # pip install mss pytesseract pillow
+# macOS: pip install pyobjc-framework-Cocoa pyobjc-framework-Quartz
 
 try:
     import mss
     import pytesseract
-    from PIL import Image
+    from PIL import Image, ImageEnhance
 except ImportError:
     print("Install dependencies: pip install mss pytesseract pillow")
     raise
+
+# Platform-specific imports
+try:
+    from AppKit import NSWorkspace
+    from Quartz import (
+        CGWindowListCopyWindowInfo,
+        kCGWindowListOptionOnScreenOnly,
+        kCGNullWindowID
+    )
+    MACOS_AVAILABLE = True
+except ImportError:
+    MACOS_AVAILABLE = False
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 
 class ScreenCapture:
@@ -100,122 +123,196 @@ class ScreenCapture:
         return current_hash != self.last_hash
     
     def _extract_text(self, image: Image.Image) -> str:
-        """Extract text from screenshot using OCR."""
+        """Extract text from screenshot using OCR with preprocessing."""
         try:
-            # Preprocess for better OCR
+            # Preprocess for better OCR accuracy
+            # Convert to grayscale
             gray = image.convert('L')
-            text = pytesseract.image_to_string(gray)
+
+            # Enhance contrast
+            enhancer = ImageEnhance.Contrast(gray)
+            enhanced = enhancer.enhance(2.0)
+
+            # Sharpen image
+            sharpener = ImageEnhance.Sharpness(enhanced)
+            sharpened = sharpener.enhance(1.5)
+
+            # Extract text with optimized config
+            # PSM 3 = Fully automatic page segmentation
+            custom_config = r'--oem 3 --psm 3'
+            text = pytesseract.image_to_string(sharpened, config=custom_config)
             return text.strip()
         except Exception as e:
-            print(f"OCR failed: {e}")
+            logger.error(f"OCR failed: {e}")
             return ""
     
     def _get_active_window(self) -> tuple[str, str]:
         """Get active window title and application name."""
-        # Platform-specific implementation needed
-        # This is a placeholder - implement for your OS
-        try:
-            # macOS example using pyobjc
-            # Linux example using xdotool
-            # Windows example using pywin32
+        if MACOS_AVAILABLE:
+            return self._get_active_window_macos()
+        else:
+            logger.warning("macOS window detection not available")
             return ("Unknown Window", "Unknown App")
-        except Exception:
+
+    def _get_active_window_macos(self) -> tuple[str, str]:
+        """Get active window on macOS using AppKit and Quartz."""
+        try:
+            # Get active application
+            workspace = NSWorkspace.sharedWorkspace()
+            active_app = workspace.activeApplication()
+            app_name = active_app['NSApplicationName']
+
+            # Get window list and find frontmost window
+            window_list = CGWindowListCopyWindowInfo(
+                kCGWindowListOptionOnScreenOnly,
+                kCGNullWindowID
+            )
+
+            # Find the frontmost window for the active app
+            window_title = "Unknown Window"
+            for window in window_list:
+                if window.get('kCGWindowOwnerName') == app_name:
+                    # Layer 0 is typically the frontmost window
+                    if window.get('kCGWindowLayer', 1) == 0:
+                        window_title = window.get('kCGWindowName', 'Untitled')
+                        if window_title:  # Found a titled window
+                            break
+
+            return (window_title, app_name)
+        except Exception as e:
+            logger.error(f"Failed to get active window (macOS): {e}")
             return ("Unknown Window", "Unknown App")
     
     def capture_once(self) -> Optional[dict]:
         """Capture a single screenshot and process it."""
-        with mss.mss() as sct:
-            # Capture primary monitor
-            monitor = sct.monitors[1]  # Primary monitor
-            screenshot = sct.grab(monitor)
-            
-            # Convert to PIL Image
-            image = Image.frombytes(
-                'RGB',
-                screenshot.size,
-                screenshot.bgra,
-                'raw',
-                'BGRX'
-            )
-            
-            # Check for significant change
-            current_hash = self._compute_image_hash(image)
-            if not self._has_significant_change(current_hash):
-                return None
-            
-            self.last_hash = current_hash
-            
-            # Extract text
-            extracted_text = self._extract_text(image)
-            
-            # Get active window info
-            window_title, app_name = self._get_active_window()
-            
-            # Create capture record
-            capture = {
-                'timestamp': datetime.now().isoformat(),
-                'screen_hash': current_hash,
-                'extracted_text': extracted_text,
-                'active_window': window_title,
-                'active_app': app_name,
-                'metadata': {
-                    'screen_size': screenshot.size,
-                    'text_length': len(extracted_text),
+        try:
+            with mss.mss() as sct:
+                # Capture primary monitor
+                monitor = sct.monitors[1]  # Primary monitor
+                screenshot = sct.grab(monitor)
+
+                # Convert to PIL Image
+                image = Image.frombytes(
+                    'RGB',
+                    screenshot.size,
+                    screenshot.bgra,
+                    'raw',
+                    'BGRX'
+                )
+
+                # Check for significant change
+                current_hash = self._compute_image_hash(image)
+                if not self._has_significant_change(current_hash):
+                    logger.debug("No significant screen change detected")
+                    return None
+
+                self.last_hash = current_hash
+
+                # Extract text
+                extracted_text = self._extract_text(image)
+
+                # Get active window info
+                window_title, app_name = self._get_active_window()
+
+                # Create capture record
+                capture = {
+                    'timestamp': datetime.now().isoformat(),
+                    'screen_hash': current_hash,
+                    'extracted_text': extracted_text,
+                    'active_window': window_title,
+                    'active_app': app_name,
+                    'metadata': {
+                        'screen_size': screenshot.size,
+                        'text_length': len(extracted_text),
+                    }
                 }
-            }
-            
-            # Store in database
-            self._store_capture(capture)
-            
-            return capture
+
+                # Store in database
+                self._store_capture(capture)
+
+                logger.info(f"Captured: {app_name} - {len(extracted_text)} chars")
+                return capture
+        except Exception as e:
+            logger.error(f"Capture failed: {e}", exc_info=True)
+            return None
     
     def _store_capture(self, capture: dict):
-        """Store capture in SQLite database."""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            INSERT INTO captures 
-            (timestamp, screen_hash, extracted_text, active_window, active_app, metadata)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (
-            capture['timestamp'],
-            capture['screen_hash'],
-            capture['extracted_text'],
-            capture['active_window'],
-            capture['active_app'],
-            json.dumps(capture['metadata'])
-        ))
-        
-        # Update FTS index
-        cursor.execute("""
-            INSERT INTO captures_fts(rowid, extracted_text)
-            VALUES (last_insert_rowid(), ?)
-        """, (capture['extracted_text'],))
-        
-        conn.commit()
-        conn.close()
+        """Store capture in SQLite database with transaction safety."""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                INSERT INTO captures
+                (timestamp, screen_hash, extracted_text, active_window, active_app, metadata)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (
+                capture['timestamp'],
+                capture['screen_hash'],
+                capture['extracted_text'],
+                capture['active_window'],
+                capture['active_app'],
+                json.dumps(capture['metadata'])
+            ))
+
+            # Update FTS index
+            cursor.execute("""
+                INSERT INTO captures_fts(rowid, extracted_text)
+                VALUES (last_insert_rowid(), ?)
+            """, (capture['extracted_text'],))
+
+            conn.commit()
+            conn.close()
+            logger.debug("Capture stored successfully")
+        except Exception as e:
+            logger.error(f"Failed to store capture: {e}")
+            if 'conn' in locals():
+                conn.close()
     
     async def run(self):
-        """Run continuous capture loop."""
+        """Run continuous capture loop with graceful shutdown."""
         self.running = True
-        print(f"Starting screen capture (interval: {self.capture_interval}s)")
-        print(f"Database: {self.db_path}")
-        print("Press Ctrl+C to stop")
-        
+        logger.info(f"Starting screen capture daemon (interval: {self.capture_interval}s)")
+        logger.info(f"Database: {self.db_path}")
+        logger.info("Press Ctrl+C to stop")
+
+        # Set up signal handlers for graceful shutdown
+        loop = asyncio.get_event_loop()
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            loop.add_signal_handler(sig, lambda: asyncio.create_task(self.shutdown()))
+
+        capture_count = 0
+        error_count = 0
+
         while self.running:
             try:
                 capture = self.capture_once()
                 if capture:
-                    text_preview = capture['extracted_text'][:100].replace('\n', ' ')
-                    print(f"[{capture['timestamp'][:19]}] Captured: {text_preview}...")
+                    capture_count += 1
+                    text_preview = capture['extracted_text'][:80].replace('\n', ' ')
+                    logger.info(f"[#{capture_count}] {capture['active_app']}: {text_preview}...")
             except Exception as e:
-                print(f"Capture error: {e}")
-            
+                error_count += 1
+                logger.error(f"Capture error ({error_count}): {e}")
+                # If too many consecutive errors, slow down
+                if error_count > 5:
+                    logger.warning("Multiple errors detected, increasing interval")
+                    await asyncio.sleep(self.capture_interval * 2)
+                    error_count = 0
+                    continue
+
             await asyncio.sleep(self.capture_interval)
-    
+
+        logger.info(f"Capture daemon stopped. Total captures: {capture_count}")
+
+    async def shutdown(self):
+        """Gracefully shutdown the capture daemon."""
+        logger.info("Shutting down capture daemon...")
+        self.running = False
+
     def stop(self):
         """Stop the capture loop."""
+        logger.info("Stop requested")
         self.running = False
     
     def search(self, query: str, limit: int = 10) -> list[dict]:

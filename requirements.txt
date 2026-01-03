@@ -41,6 +41,7 @@ ruff>=0.2.0                   # Linting
 mypy>=1.8.0                   # Type checking
 
 # === Platform-Specific (uncomment as needed) ===
-# pyobjc>=10.0             # macOS window management
-# pywin32>=306             # Windows APIs
-# python-xlib>=0.33        # Linux X11 access
+pyobjc-framework-Cocoa>=10.0      # macOS application management
+pyobjc-framework-Quartz>=10.0     # macOS window information
+# pywin32>=306                     # Windows APIs
+# python-xlib>=0.33                # Linux X11 access
