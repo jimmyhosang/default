@@ -251,23 +251,38 @@ class CaptureManager:
     Manages multiple capture sources and coordinates storage.
     This is the main entry point for the System of Record layer.
     """
-    
-    def __init__(self):
+
+    def __init__(self, enable_screen: bool = True, enable_clipboard: bool = True):
         self.sources = {}
-        self.screen_capture = ScreenCapture()
-        # Add more sources: clipboard, file watcher, etc.
-    
+        self.enable_screen = enable_screen
+        self.enable_clipboard = enable_clipboard
+
+        if enable_screen:
+            self.screen_capture = ScreenCapture()
+
+        if enable_clipboard:
+            from .clipboard_monitor import ClipboardMonitor
+            self.clipboard_monitor = ClipboardMonitor()
+
     async def start_all(self):
         """Start all capture sources."""
-        tasks = [
-            self.screen_capture.run(),
-            # Add more capture tasks here
-        ]
+        tasks = []
+
+        if self.enable_screen:
+            tasks.append(self.screen_capture.run())
+
+        if self.enable_clipboard:
+            tasks.append(self.clipboard_monitor.run())
+
         await asyncio.gather(*tasks)
-    
+
     def stop_all(self):
         """Stop all capture sources."""
-        self.screen_capture.stop()
+        if self.enable_screen:
+            self.screen_capture.stop()
+
+        if self.enable_clipboard:
+            self.clipboard_monitor.stop()
 
 
 # CLI interface
