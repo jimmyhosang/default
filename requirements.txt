@@ -1,0 +1,46 @@
+# Unified AI System - Core Dependencies
+# Install with: pip install -r requirements.txt
+
+# === System of Record (Capture Layer) ===
+mss>=9.0.0                    # Cross-platform screenshot capture
+pytesseract>=0.3.10           # OCR text extraction
+Pillow>=10.0.0                # Image processing
+watchdog>=3.0.0               # File system monitoring
+pyperclip>=1.8.0              # Clipboard access
+
+# === Semantic Storage ===
+lancedb>=0.4.0                # Vector database (local-first)
+sentence-transformers>=2.2.0  # Text embeddings
+spacy>=3.7.0                  # Entity extraction
+
+# === System of Action (Automation) ===
+playwright>=1.40.0            # Browser automation
+pyautogui>=0.9.54             # Desktop automation
+
+# === System of Thought (LLM) ===
+ollama>=0.1.0                 # Local LLM management
+anthropic>=0.18.0             # Claude API (for complex reasoning)
+openai>=1.0.0                 # OpenAI-compatible API client
+
+# === Core Infrastructure ===
+asyncio-mqtt>=0.16.0          # Event messaging
+celery>=5.3.0                 # Task queue
+redis>=5.0.0                  # Optional: caching/state
+
+# === API & Interface ===
+fastapi>=0.109.0              # Local API server
+uvicorn>=0.27.0               # ASGI server
+typer>=0.9.0                  # CLI framework
+rich>=13.0.0                  # Terminal formatting
+
+# === Development ===
+pytest>=8.0.0                 # Testing
+pytest-asyncio>=0.23.0        # Async test support
+black>=24.0.0                 # Code formatting
+ruff>=0.2.0                   # Linting
+mypy>=1.8.0                   # Type checking
+
+# === Platform-Specific (uncomment as needed) ===
+# pyobjc>=10.0             # macOS window management
+# pywin32>=306             # Windows APIs
+# python-xlib>=0.33        # Linux X11 access
