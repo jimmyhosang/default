@@ -1,0 +1,1093 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Unified AI - Get Started</title>
+    <style>
+        :root {
+            --primary: #6366f1;
+            --primary-dark: #4f46e5;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --error: #ef4444;
+            --gray-50: #f9fafb;
+            --gray-100: #f3f4f6;
+            --gray-200: #e5e7eb;
+            --gray-300: #d1d5db;
+            --gray-400: #9ca3af;
+            --gray-500: #6b7280;
+            --gray-600: #4b5563;
+            --gray-700: #374151;
+            --gray-800: #1f2937;
+            --gray-900: #111827;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+            width: 100%;
+            max-width: 520px;
+            overflow: hidden;
+        }
+
+        /* Progress bar */
+        .progress-bar {
+            display: flex;
+            padding: 24px 32px;
+            background: var(--gray-50);
+            border-bottom: 1px solid var(--gray-200);
+        }
+
+        .progress-step {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            position: relative;
+        }
+
+        .progress-step:not(:last-child)::after {
+            content: '';
+            position: absolute;
+            top: 14px;
+            left: 50%;
+            width: 100%;
+            height: 2px;
+            background: var(--gray-200);
+        }
+
+        .progress-step.completed:not(:last-child)::after {
+            background: var(--success);
+        }
+
+        .step-circle {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            background: var(--gray-200);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--gray-500);
+            position: relative;
+            z-index: 1;
+            transition: all 0.3s ease;
+        }
+
+        .progress-step.active .step-circle {
+            background: var(--primary);
+            color: white;
+            box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.2);
+        }
+
+        .progress-step.completed .step-circle {
+            background: var(--success);
+            color: white;
+        }
+
+        .step-label {
+            font-size: 11px;
+            color: var(--gray-500);
+            margin-top: 6px;
+            text-align: center;
+        }
+
+        .progress-step.active .step-label {
+            color: var(--primary);
+            font-weight: 500;
+        }
+
+        /* Content area */
+        .content {
+            padding: 32px;
+        }
+
+        .step-content {
+            display: none;
+        }
+
+        .step-content.active {
+            display: block;
+            animation: fadeIn 0.3s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        h1 {
+            font-size: 24px;
+            color: var(--gray-900);
+            margin-bottom: 8px;
+        }
+
+        h2 {
+            font-size: 20px;
+            color: var(--gray-900);
+            margin-bottom: 8px;
+        }
+
+        .subtitle {
+            color: var(--gray-500);
+            margin-bottom: 24px;
+        }
+
+        /* Forms */
+        .form-group {
+            margin-bottom: 16px;
+        }
+
+        label {
+            display: block;
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--gray-700);
+            margin-bottom: 6px;
+        }
+
+        input[type="text"],
+        input[type="email"],
+        input[type="password"] {
+            width: 100%;
+            padding: 12px 16px;
+            border: 1px solid var(--gray-300);
+            border-radius: 8px;
+            font-size: 15px;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 15px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-decoration: none;
+        }
+
+        .btn-primary {
+            background: var(--primary);
+            color: white;
+            width: 100%;
+        }
+
+        .btn-primary:hover {
+            background: var(--primary-dark);
+        }
+
+        .btn-primary:disabled {
+            background: var(--gray-300);
+            cursor: not-allowed;
+        }
+
+        .btn-secondary {
+            background: white;
+            color: var(--gray-700);
+            border: 1px solid var(--gray-300);
+        }
+
+        .btn-secondary:hover {
+            background: var(--gray-50);
+        }
+
+        .btn-success {
+            background: var(--success);
+            color: white;
+        }
+
+        .btn-icon {
+            margin-right: 8px;
+        }
+
+        /* Platform selection */
+        .platform-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+
+        .platform-card {
+            padding: 20px 16px;
+            border: 2px solid var(--gray-200);
+            border-radius: 12px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .platform-card:hover {
+            border-color: var(--primary);
+            background: rgba(99, 102, 241, 0.05);
+        }
+
+        .platform-card.selected {
+            border-color: var(--primary);
+            background: rgba(99, 102, 241, 0.1);
+        }
+
+        .platform-icon {
+            font-size: 32px;
+            margin-bottom: 8px;
+        }
+
+        .platform-name {
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--gray-700);
+        }
+
+        /* Status cards */
+        .status-card {
+            padding: 16px;
+            border: 1px solid var(--gray-200);
+            border-radius: 12px;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+        }
+
+        .status-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            margin-right: 14px;
+        }
+
+        .status-icon.success {
+            background: rgba(16, 185, 129, 0.1);
+            color: var(--success);
+        }
+
+        .status-icon.pending {
+            background: rgba(245, 158, 11, 0.1);
+            color: var(--warning);
+        }
+
+        .status-icon.inactive {
+            background: var(--gray-100);
+            color: var(--gray-400);
+        }
+
+        .status-info h4 {
+            font-size: 14px;
+            color: var(--gray-800);
+            margin-bottom: 2px;
+        }
+
+        .status-info p {
+            font-size: 12px;
+            color: var(--gray-500);
+        }
+
+        .status-badge {
+            margin-left: auto;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 500;
+        }
+
+        .status-badge.active {
+            background: rgba(16, 185, 129, 0.1);
+            color: var(--success);
+        }
+
+        .status-badge.inactive {
+            background: var(--gray-100);
+            color: var(--gray-500);
+        }
+
+        /* Sync summary */
+        .sync-summary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 12px;
+            padding: 24px;
+            color: white;
+            text-align: center;
+            margin-bottom: 24px;
+        }
+
+        .sync-percentage {
+            font-size: 48px;
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+
+        .sync-label {
+            font-size: 14px;
+            opacity: 0.9;
+        }
+
+        /* Links */
+        .link {
+            color: var(--primary);
+            text-decoration: none;
+        }
+
+        .link:hover {
+            text-decoration: underline;
+        }
+
+        .text-center {
+            text-align: center;
+        }
+
+        .mt-4 {
+            margin-top: 16px;
+        }
+
+        .error-message {
+            background: rgba(239, 68, 68, 0.1);
+            color: var(--error);
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 14px;
+            margin-bottom: 16px;
+            display: none;
+        }
+
+        .error-message.show {
+            display: block;
+        }
+
+        /* Toggle tabs */
+        .auth-tabs {
+            display: flex;
+            margin-bottom: 24px;
+            border-bottom: 1px solid var(--gray-200);
+        }
+
+        .auth-tab {
+            flex: 1;
+            padding: 12px;
+            text-align: center;
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--gray-500);
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            margin-bottom: -1px;
+            transition: all 0.2s;
+        }
+
+        .auth-tab:hover {
+            color: var(--gray-700);
+        }
+
+        .auth-tab.active {
+            color: var(--primary);
+            border-bottom-color: var(--primary);
+        }
+
+        /* Loading spinner */
+        .spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid transparent;
+            border-top-color: currentColor;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-right: 8px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .btn.loading {
+            pointer-events: none;
+            opacity: 0.7;
+        }
+
+        /* Check animation */
+        .checkmark {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background: var(--success);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 20px;
+            animation: scaleIn 0.3s ease;
+        }
+
+        @keyframes scaleIn {
+            from { transform: scale(0); }
+            to { transform: scale(1); }
+        }
+
+        .checkmark svg {
+            width: 32px;
+            height: 32px;
+            stroke: white;
+            stroke-width: 3;
+        }
+
+        /* Extension browser icons */
+        .browser-list {
+            display: flex;
+            gap: 16px;
+            justify-content: center;
+            margin: 24px 0;
+        }
+
+        .browser-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 16px 24px;
+            border: 1px solid var(--gray-200);
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .browser-item:hover {
+            border-color: var(--primary);
+            background: rgba(99, 102, 241, 0.05);
+        }
+
+        .browser-item.selected {
+            border-color: var(--primary);
+            background: rgba(99, 102, 241, 0.1);
+        }
+
+        .browser-icon {
+            font-size: 36px;
+            margin-bottom: 8px;
+        }
+
+        .browser-name {
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--gray-700);
+        }
+
+        /* Skip button */
+        .skip-link {
+            display: block;
+            text-align: center;
+            margin-top: 16px;
+            font-size: 13px;
+            color: var(--gray-500);
+            cursor: pointer;
+        }
+
+        .skip-link:hover {
+            color: var(--gray-700);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Progress Bar -->
+        <div class="progress-bar">
+            <div class="progress-step active" data-step="1">
+                <div class="step-circle">1</div>
+                <div class="step-label">Account</div>
+            </div>
+            <div class="progress-step" data-step="2">
+                <div class="step-circle">2</div>
+                <div class="step-label">Desktop</div>
+            </div>
+            <div class="progress-step" data-step="3">
+                <div class="step-circle">3</div>
+                <div class="step-label">Extension</div>
+            </div>
+            <div class="progress-step" data-step="4">
+                <div class="step-circle">4</div>
+                <div class="step-label">Complete</div>
+            </div>
+        </div>
+
+        <div class="content">
+            <!-- Step 1: Auth (Signup/Login) -->
+            <div class="step-content active" id="step-1">
+                <div class="auth-tabs">
+                    <div class="auth-tab active" data-tab="signup">Sign Up</div>
+                    <div class="auth-tab" data-tab="login">Log In</div>
+                </div>
+
+                <div class="error-message" id="auth-error"></div>
+
+                <!-- Signup Form -->
+                <form id="signup-form">
+                    <div class="form-group">
+                        <label for="signup-name">Full Name</label>
+                        <input type="text" id="signup-name" placeholder="John Doe" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="signup-email">Email</label>
+                        <input type="email" id="signup-email" placeholder="john@example.com" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="signup-password">Password</label>
+                        <input type="password" id="signup-password" placeholder="Min. 8 characters" required minlength="8">
+                    </div>
+                    <button type="submit" class="btn btn-primary">Create Account</button>
+                </form>
+
+                <!-- Login Form -->
+                <form id="login-form" style="display: none;">
+                    <div class="form-group">
+                        <label for="login-email">Email</label>
+                        <input type="email" id="login-email" placeholder="john@example.com" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="login-password">Password</label>
+                        <input type="password" id="login-password" placeholder="Your password" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Log In</button>
+                </form>
+            </div>
+
+            <!-- Step 2: Desktop App Download -->
+            <div class="step-content" id="step-2">
+                <h2>Download Desktop App</h2>
+                <p class="subtitle">Capture your screen, clipboard, and local files automatically.</p>
+
+                <div class="platform-grid">
+                    <div class="platform-card" data-platform="windows">
+                        <div class="platform-icon">&#128187;</div>
+                        <div class="platform-name">Windows</div>
+                    </div>
+                    <div class="platform-card" data-platform="macos">
+                        <div class="platform-icon">&#63743;</div>
+                        <div class="platform-name">macOS</div>
+                    </div>
+                    <div class="platform-card" data-platform="linux">
+                        <div class="platform-icon">&#128039;</div>
+                        <div class="platform-name">Linux</div>
+                    </div>
+                </div>
+
+                <button class="btn btn-primary" id="download-btn" disabled>
+                    <span class="btn-icon">&#8595;</span>
+                    Select Platform to Download
+                </button>
+
+                <div id="download-instructions" style="display: none; margin-top: 20px;">
+                    <div class="status-card">
+                        <div class="status-icon pending">&#8987;</div>
+                        <div class="status-info">
+                            <h4>Waiting for installation...</h4>
+                            <p>Open the downloaded file and follow the setup wizard</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="skip-link" onclick="skipStep(2)">Skip for now, I'll do this later</div>
+            </div>
+
+            <!-- Step 3: Chrome Extension -->
+            <div class="step-content" id="step-3">
+                <h2>Install Browser Extension</h2>
+                <p class="subtitle">Capture your browsing history, bookmarks, and active tabs.</p>
+
+                <div class="browser-list">
+                    <div class="browser-item selected" data-browser="chrome">
+                        <div class="browser-icon">&#127760;</div>
+                        <div class="browser-name">Chrome</div>
+                    </div>
+                    <div class="browser-item" data-browser="firefox">
+                        <div class="browser-icon">&#128293;</div>
+                        <div class="browser-name">Firefox</div>
+                    </div>
+                    <div class="browser-item" data-browser="edge">
+                        <div class="browser-icon">&#127758;</div>
+                        <div class="browser-name">Edge</div>
+                    </div>
+                </div>
+
+                <a href="#" class="btn btn-primary" id="extension-btn" target="_blank">
+                    <span class="btn-icon">&#10010;</span>
+                    Add to Chrome
+                </a>
+
+                <div id="extension-instructions" style="margin-top: 20px;">
+                    <div class="status-card">
+                        <div class="status-icon pending">&#128274;</div>
+                        <div class="status-info">
+                            <h4>Permissions needed</h4>
+                            <p>The extension needs access to browsing history and tabs</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="skip-link" onclick="skipStep(3)">Skip for now</div>
+            </div>
+
+            <!-- Step 4: Complete / Sync Status -->
+            <div class="step-content" id="step-4">
+                <div class="checkmark">
+                    <svg viewBox="0 0 24 24" fill="none">
+                        <path d="M5 13l4 4L19 7" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                </div>
+
+                <h2 class="text-center">You're All Set!</h2>
+                <p class="subtitle text-center">Your data collection is now active and syncing.</p>
+
+                <div class="sync-summary">
+                    <div class="sync-percentage" id="sync-percentage">100%</div>
+                    <div class="sync-label">Data Sources Active</div>
+                </div>
+
+                <div id="sync-status-list">
+                    <!-- Populated dynamically -->
+                </div>
+
+                <button class="btn btn-success" onclick="goToDashboard()" style="width: 100%; margin-top: 24px;">
+                    <span class="btn-icon">&#128200;</span>
+                    Open Dashboard
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // State
+        let currentStep = 1;
+        let authToken = null;
+        let user = null;
+        let onboardingState = null;
+        let selectedPlatform = null;
+        let selectedBrowser = 'chrome';
+
+        const API_BASE = '';  // Same origin
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            // Check for existing session
+            const savedToken = localStorage.getItem('auth_token');
+            if (savedToken) {
+                authToken = savedToken;
+                checkSession();
+            }
+
+            // Auth tab switching
+            document.querySelectorAll('.auth-tab').forEach(tab => {
+                tab.addEventListener('click', () => {
+                    const tabName = tab.dataset.tab;
+                    document.querySelectorAll('.auth-tab').forEach(t => t.classList.remove('active'));
+                    tab.classList.add('active');
+
+                    document.getElementById('signup-form').style.display = tabName === 'signup' ? 'block' : 'none';
+                    document.getElementById('login-form').style.display = tabName === 'login' ? 'block' : 'none';
+                });
+            });
+
+            // Signup form
+            document.getElementById('signup-form').addEventListener('submit', handleSignup);
+
+            // Login form
+            document.getElementById('login-form').addEventListener('submit', handleLogin);
+
+            // Platform selection
+            document.querySelectorAll('.platform-card').forEach(card => {
+                card.addEventListener('click', () => {
+                    document.querySelectorAll('.platform-card').forEach(c => c.classList.remove('selected'));
+                    card.classList.add('selected');
+                    selectedPlatform = card.dataset.platform;
+                    updateDownloadButton();
+                });
+            });
+
+            // Download button
+            document.getElementById('download-btn').addEventListener('click', handleDownload);
+
+            // Browser selection
+            document.querySelectorAll('.browser-item').forEach(item => {
+                item.addEventListener('click', () => {
+                    document.querySelectorAll('.browser-item').forEach(i => i.classList.remove('selected'));
+                    item.classList.add('selected');
+                    selectedBrowser = item.dataset.browser;
+                    updateExtensionButton();
+                });
+            });
+
+            // Extension button
+            document.getElementById('extension-btn').addEventListener('click', handleExtensionInstall);
+
+            // Auto-detect platform
+            detectPlatform();
+        });
+
+        function detectPlatform() {
+            const platform = navigator.platform.toLowerCase();
+            if (platform.includes('win')) {
+                selectPlatform('windows');
+            } else if (platform.includes('mac')) {
+                selectPlatform('macos');
+            } else if (platform.includes('linux')) {
+                selectPlatform('linux');
+            }
+        }
+
+        function selectPlatform(platform) {
+            const card = document.querySelector(`.platform-card[data-platform="${platform}"]`);
+            if (card) {
+                document.querySelectorAll('.platform-card').forEach(c => c.classList.remove('selected'));
+                card.classList.add('selected');
+                selectedPlatform = platform;
+                updateDownloadButton();
+            }
+        }
+
+        function updateDownloadButton() {
+            const btn = document.getElementById('download-btn');
+            if (selectedPlatform) {
+                btn.disabled = false;
+                btn.innerHTML = `<span class="btn-icon">&#8595;</span> Download for ${selectedPlatform.charAt(0).toUpperCase() + selectedPlatform.slice(1)}`;
+            }
+        }
+
+        function updateExtensionButton() {
+            const btn = document.getElementById('extension-btn');
+            const browserNames = { chrome: 'Chrome', firefox: 'Firefox', edge: 'Edge' };
+            btn.innerHTML = `<span class="btn-icon">&#10010;</span> Add to ${browserNames[selectedBrowser]}`;
+        }
+
+        async function checkSession() {
+            try {
+                const response = await fetch(`${API_BASE}/api/auth/me`, {
+                    headers: { 'Authorization': `Bearer ${authToken}` }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    user = data.user;
+                    onboardingState = data.onboarding;
+                    determineStep();
+                } else {
+                    localStorage.removeItem('auth_token');
+                    authToken = null;
+                }
+            } catch (error) {
+                console.error('Session check failed:', error);
+            }
+        }
+
+        function determineStep() {
+            if (!onboardingState) {
+                goToStep(1);
+                return;
+            }
+
+            if (onboardingState.current_step === 'completed') {
+                goToStep(4);
+            } else if (onboardingState.extension_installed) {
+                goToStep(4);
+            } else if (onboardingState.desktop_installed) {
+                goToStep(3);
+            } else if (onboardingState.signup_completed) {
+                goToStep(2);
+            } else {
+                goToStep(1);
+            }
+        }
+
+        function goToStep(step) {
+            currentStep = step;
+
+            // Update progress bar
+            document.querySelectorAll('.progress-step').forEach((el, index) => {
+                el.classList.remove('active', 'completed');
+                if (index + 1 < step) {
+                    el.classList.add('completed');
+                } else if (index + 1 === step) {
+                    el.classList.add('active');
+                }
+            });
+
+            // Show step content
+            document.querySelectorAll('.step-content').forEach(el => el.classList.remove('active'));
+            document.getElementById(`step-${step}`).classList.add('active');
+
+            // Load sync status if on final step
+            if (step === 4) {
+                loadSyncStatus();
+            }
+        }
+
+        function showError(message) {
+            const errorEl = document.getElementById('auth-error');
+            errorEl.textContent = message;
+            errorEl.classList.add('show');
+            setTimeout(() => errorEl.classList.remove('show'), 5000);
+        }
+
+        async function handleSignup(e) {
+            e.preventDefault();
+
+            const btn = e.target.querySelector('button');
+            btn.classList.add('loading');
+            btn.innerHTML = '<span class="spinner"></span> Creating account...';
+
+            try {
+                const response = await fetch(`${API_BASE}/api/auth/signup`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name: document.getElementById('signup-name').value,
+                        email: document.getElementById('signup-email').value,
+                        password: document.getElementById('signup-password').value,
+                    })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    authToken = data.token;
+                    user = data.user;
+                    onboardingState = data.onboarding;
+                    localStorage.setItem('auth_token', authToken);
+                    goToStep(2);
+                } else {
+                    showError(data.detail || 'Signup failed');
+                }
+            } catch (error) {
+                showError('Network error. Please try again.');
+            } finally {
+                btn.classList.remove('loading');
+                btn.innerHTML = 'Create Account';
+            }
+        }
+
+        async function handleLogin(e) {
+            e.preventDefault();
+
+            const btn = e.target.querySelector('button');
+            btn.classList.add('loading');
+            btn.innerHTML = '<span class="spinner"></span> Logging in...';
+
+            try {
+                const response = await fetch(`${API_BASE}/api/auth/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        email: document.getElementById('login-email').value,
+                        password: document.getElementById('login-password').value,
+                    })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    authToken = data.token;
+                    user = data.user;
+                    onboardingState = data.onboarding;
+                    localStorage.setItem('auth_token', authToken);
+                    determineStep();
+                } else {
+                    showError(data.detail || 'Login failed');
+                }
+            } catch (error) {
+                showError('Network error. Please try again.');
+            } finally {
+                btn.classList.remove('loading');
+                btn.innerHTML = 'Log In';
+            }
+        }
+
+        async function handleDownload() {
+            if (!selectedPlatform) return;
+
+            const btn = document.getElementById('download-btn');
+            btn.classList.add('loading');
+            btn.innerHTML = '<span class="spinner"></span> Preparing download...';
+
+            try {
+                const response = await fetch(`${API_BASE}/api/desktop/download-token`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${authToken}`
+                    },
+                    body: JSON.stringify({ platform: selectedPlatform })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    // Show download instructions
+                    document.getElementById('download-instructions').style.display = 'block';
+                    btn.innerHTML = `<span class="btn-icon">&#10003;</span> Download Started`;
+                    btn.classList.add('btn-success');
+
+                    // In production, this would trigger actual download
+                    // window.location.href = data.download_url;
+
+                    // Simulate device registration after "installation"
+                    setTimeout(() => simulateDeviceRegistration(), 3000);
+                } else {
+                    showError(data.detail || 'Failed to create download');
+                    btn.innerHTML = `<span class="btn-icon">&#8595;</span> Download for ${selectedPlatform}`;
+                }
+            } catch (error) {
+                showError('Network error. Please try again.');
+                btn.innerHTML = `<span class="btn-icon">&#8595;</span> Download for ${selectedPlatform}`;
+            } finally {
+                btn.classList.remove('loading');
+            }
+        }
+
+        async function simulateDeviceRegistration() {
+            try {
+                const response = await fetch(`${API_BASE}/api/desktop/register`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${authToken}`
+                    },
+                    body: JSON.stringify({
+                        device_name: `${user.name}'s ${selectedPlatform}`,
+                        platform: selectedPlatform,
+                        version: '1.0.0'
+                    })
+                });
+
+                if (response.ok) {
+                    goToStep(3);
+                }
+            } catch (error) {
+                console.error('Device registration failed:', error);
+            }
+        }
+
+        async function handleExtensionInstall(e) {
+            e.preventDefault();
+
+            // In production, this would open the actual extension store
+            // For now, simulate installation
+
+            const btn = document.getElementById('extension-btn');
+            btn.classList.add('loading');
+            btn.innerHTML = '<span class="spinner"></span> Installing...';
+
+            try {
+                const response = await fetch(`${API_BASE}/api/extension/register`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${authToken}`
+                    },
+                    body: JSON.stringify({
+                        version: '1.0.0',
+                        browser: selectedBrowser
+                    })
+                });
+
+                if (response.ok) {
+                    btn.innerHTML = `<span class="btn-icon">&#10003;</span> Installed`;
+                    btn.classList.add('btn-success');
+                    setTimeout(() => goToStep(4), 1000);
+                }
+            } catch (error) {
+                console.error('Extension registration failed:', error);
+            } finally {
+                btn.classList.remove('loading');
+            }
+        }
+
+        async function loadSyncStatus() {
+            try {
+                const response = await fetch(`${API_BASE}/api/onboarding/sync`, {
+                    headers: { 'Authorization': `Bearer ${authToken}` }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    renderSyncStatus(data);
+                }
+            } catch (error) {
+                console.error('Failed to load sync status:', error);
+            }
+        }
+
+        function renderSyncStatus(data) {
+            document.getElementById('sync-percentage').textContent = `${data.completion_percentage}%`;
+
+            const statusList = document.getElementById('sync-status-list');
+            statusList.innerHTML = '';
+
+            const sources = [
+                { key: 'screen_capture', name: 'Screen Capture', icon: '&#128248;' },
+                { key: 'clipboard', name: 'Clipboard', icon: '&#128203;' },
+                { key: 'file_watcher', name: 'File Watcher', icon: '&#128193;' },
+                { key: 'browser_history', name: 'Browser History', icon: '&#128218;' },
+                { key: 'browser_tabs', name: 'Active Tabs', icon: '&#128196;' },
+                { key: 'browser_bookmarks', name: 'Bookmarks', icon: '&#11088;' },
+            ];
+
+            sources.forEach(source => {
+                const status = data.sources[source.key];
+                const isActive = status && status.enabled;
+
+                statusList.innerHTML += `
+                    <div class="status-card">
+                        <div class="status-icon ${isActive ? 'success' : 'inactive'}">${source.icon}</div>
+                        <div class="status-info">
+                            <h4>${source.name}</h4>
+                            <p>${isActive ? 'Capturing data' : 'Not active'}</p>
+                        </div>
+                        <span class="status-badge ${isActive ? 'active' : 'inactive'}">
+                            ${isActive ? 'Active' : 'Inactive'}
+                        </span>
+                    </div>
+                `;
+            });
+        }
+
+        function skipStep(step) {
+            if (step === 2) {
+                goToStep(3);
+            } else if (step === 3) {
+                goToStep(4);
+            }
+        }
+
+        function goToDashboard() {
+            window.location.href = '/dashboard';
+        }
+    </script>
+</body>
+</html>
