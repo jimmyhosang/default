@@ -23,6 +23,7 @@ pyautogui>=0.9.54             # Desktop automation
 ollama>=0.1.0                 # Local LLM management
 anthropic>=0.18.0             # Claude API (for complex reasoning)
 openai>=1.0.0                 # OpenAI-compatible API client
+aiohttp>=3.9.0                # Async HTTP client
 
 # === Core Infrastructure ===
 python-dotenv>=1.0.0          # Environment variable management
