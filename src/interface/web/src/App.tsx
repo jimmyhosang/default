@@ -31,10 +31,23 @@ function App() {
   const [activeTab, setActiveTab] = useState('overview');
   const [stats, setStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [showOnboarding, setShowOnboarding] = useState(false);
 
   useEffect(() => {
     fetchStats();
+    checkOnboarding();
   }, []);
+
+  const checkOnboarding = async () => {
+    try {
+      const res = await axios.get(`${API_BASE}/api/settings`);
+      if (!res.data.onboardingComplete) {
+        setShowOnboarding(true);
+      }
+    } catch (err) {
+      console.error('Failed to check onboarding status:', err);
+    }
+  };
 
   const fetchStats = async () => {
     try {
@@ -58,6 +71,11 @@ function App() {
 
   return (
     <div className="min-h-screen bg-white p-6">
+      {/* Onboarding Wizard */}
+      {showOnboarding && (
+        <OnboardingWizard onComplete={() => setShowOnboarding(false)} />
+      )}
+
       {/* Header */}
       <header className="neo-card neo-yellow p-4 mb-8">
         <div className="flex items-center justify-between">
@@ -108,6 +126,207 @@ function App() {
     </div>
   );
 }
+
+// --- Onboarding Wizard Component ---
+const OnboardingWizard = ({ onComplete }: { onComplete: () => void }) => {
+  const [step, setStep] = useState(1);
+  const [config, setConfig] = useState({
+    capture: {
+      screen_interval: 30,
+      clipboard_enabled: true,
+      file_watch_enabled: true,
+    },
+    llm: {
+      provider: 'ollama',
+      ollama_model: 'mistral',
+      openai_api_key: '',
+    },
+  });
+  const [saving, setSaving] = useState(false);
+
+  const handleFinish = async () => {
+    setSaving(true);
+    try {
+      await axios.put(`${API_BASE}/api/settings`, {
+        ...config,
+        onboardingComplete: true,
+      });
+      onComplete();
+    } catch (err) {
+      console.error('Failed to save settings:', err);
+    }
+    setSaving(false);
+  };
+
+  const stepContent = () => {
+    switch (step) {
+      case 1:
+        return (
+          <div className="text-center space-y-6">
+            <div className="text-6xl">🚀</div>
+            <h2 className="text-3xl font-black uppercase">Welcome!</h2>
+            <p className="text-lg text-gray-700 max-w-md mx-auto">
+              Your personal AI-powered knowledge base. Let's configure a few things to get started.
+            </p>
+            <button
+              onClick={() => setStep(2)}
+              className="neo-button neo-yellow px-8 py-3 text-lg font-bold"
+            >
+              Get Started →
+            </button>
+          </div>
+        );
+      case 2:
+        return (
+          <div className="space-y-6">
+            <h2 className="text-2xl font-black uppercase text-center">Capture Settings</h2>
+            <div className="space-y-4">
+              <div className="neo-card p-4">
+                <label className="flex items-center justify-between">
+                  <span className="font-bold">Screenshot Interval (seconds)</span>
+                  <input
+                    type="number"
+                    value={config.capture.screen_interval}
+                    onChange={(e) =>
+                      setConfig({
+                        ...config,
+                        capture: { ...config.capture, screen_interval: parseInt(e.target.value) || 30 },
+                      })
+                    }
+                    className="w-20 p-2 border-2 border-black text-center font-mono"
+                  />
+                </label>
+              </div>
+              <div className="neo-card p-4">
+                <label className="flex items-center justify-between">
+                  <span className="font-bold">Clipboard Monitoring</span>
+                  <input
+                    type="checkbox"
+                    checked={config.capture.clipboard_enabled}
+                    onChange={(e) =>
+                      setConfig({
+                        ...config,
+                        capture: { ...config.capture, clipboard_enabled: e.target.checked },
+                      })
+                    }
+                    className="w-6 h-6"
+                  />
+                </label>
+              </div>
+              <div className="neo-card p-4">
+                <label className="flex items-center justify-between">
+                  <span className="font-bold">File Watching</span>
+                  <input
+                    type="checkbox"
+                    checked={config.capture.file_watch_enabled}
+                    onChange={(e) =>
+                      setConfig({
+                        ...config,
+                        capture: { ...config.capture, file_watch_enabled: e.target.checked },
+                      })
+                    }
+                    className="w-6 h-6"
+                  />
+                </label>
+              </div>
+            </div>
+            <div className="flex justify-between">
+              <button onClick={() => setStep(1)} className="neo-button px-6 py-2">
+                ← Back
+              </button>
+              <button onClick={() => setStep(3)} className="neo-button neo-pink px-6 py-2 font-bold">
+                Next →
+              </button>
+            </div>
+          </div>
+        );
+      case 3:
+        return (
+          <div className="space-y-6">
+            <h2 className="text-2xl font-black uppercase text-center">AI Provider</h2>
+            <div className="space-y-4">
+              <div
+                onClick={() => setConfig({ ...config, llm: { ...config.llm, provider: 'ollama' } })}
+                className={`neo-card p-4 cursor-pointer ${config.llm.provider === 'ollama' ? 'neo-green' : ''}`}
+              >
+                <h3 className="font-black text-lg">🏠 Ollama (Local)</h3>
+                <p className="text-sm text-gray-600">Free, private, runs on your machine</p>
+                {config.llm.provider === 'ollama' && (
+                  <input
+                    type="text"
+                    placeholder="Model (e.g., mistral)"
+                    value={config.llm.ollama_model}
+                    onChange={(e) =>
+                      setConfig({ ...config, llm: { ...config.llm, ollama_model: e.target.value } })
+                    }
+                    className="mt-2 w-full p-2 border-2 border-black"
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                )}
+              </div>
+              <div
+                onClick={() => setConfig({ ...config, llm: { ...config.llm, provider: 'openai' } })}
+                className={`neo-card p-4 cursor-pointer ${config.llm.provider === 'openai' ? 'neo-blue' : ''}`}
+              >
+                <h3 className="font-black text-lg">☁️ OpenAI</h3>
+                <p className="text-sm text-gray-600">GPT-4, requires API key</p>
+                {config.llm.provider === 'openai' && (
+                  <input
+                    type="password"
+                    placeholder="OpenAI API Key"
+                    value={config.llm.openai_api_key}
+                    onChange={(e) =>
+                      setConfig({ ...config, llm: { ...config.llm, openai_api_key: e.target.value } })
+                    }
+                    className="mt-2 w-full p-2 border-2 border-black"
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                )}
+              </div>
+            </div>
+            <div className="flex justify-between">
+              <button onClick={() => setStep(2)} className="neo-button px-6 py-2">
+                ← Back
+              </button>
+              <button onClick={() => setStep(4)} className="neo-button neo-pink px-6 py-2 font-bold">
+                Next →
+              </button>
+            </div>
+          </div>
+        );
+      case 4:
+        return (
+          <div className="text-center space-y-6">
+            <div className="text-6xl">🎉</div>
+            <h2 className="text-3xl font-black uppercase">All Set!</h2>
+            <p className="text-lg text-gray-700 max-w-md mx-auto">
+              Your Unified AI System is ready. You can always change these settings later.
+            </p>
+            <button
+              onClick={handleFinish}
+              disabled={saving}
+              className="neo-button neo-yellow px-8 py-3 text-lg font-bold disabled:opacity-50"
+            >
+              {saving ? 'Saving...' : 'Start Using →'}
+            </button>
+          </div>
+        );
+      default:
+        return null;
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div className="neo-card p-8 max-w-lg w-full mx-4 bg-white">
+        <div className="text-center text-sm font-bold text-gray-500 mb-6">
+          Step {step} of 4
+        </div>
+        {stepContent()}
+      </div>
+    </div>
+  );
+};
 
 // --- Action Bar Component ---
 const ActionBar = () => {

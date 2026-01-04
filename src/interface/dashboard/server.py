@@ -891,7 +891,8 @@ def get_default_settings() -> Dict[str, Any]:
             "theme": "auto",
             "start_minimized": False,
             "show_notifications": True,
-        }
+        },
+        "onboardingComplete": False,
     }
 
 def load_settings() -> Dict[str, Any]:
