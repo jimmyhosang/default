@@ -53,24 +53,6 @@ DIST_DIR = Path(__file__).parent.parent / "web" / "dist"
 if DIST_DIR.exists():
     app.mount("/assets", StaticFiles(directory=str(DIST_DIR / "assets")), name="assets")
 
-@app.get("/{full_path:path}")
-async def serve_react_app(full_path: str):
-    """Serve the React app for any unmatched route (SPA support)."""
-    # API routes are handled by specific endpoints defined above/below
-    if full_path.startswith("api/"):
-        raise HTTPException(status_code=404, detail="API endpoint not found")
-        
-    index_path = DIST_DIR / "index.html"
-    if not index_path.exists():
-        return HTMLResponse("""
-            <html><body>
-                <h1>Frontend Build Not Found</h1>
-                <p>Please run 'npm run build' in src/interface/web first.</p>
-            </body></html>
-        """, status_code=404)
-        
-    return FileResponse(index_path)
-
 
 @app.get("/api/timeline")
 async def get_timeline(
@@ -573,6 +555,22 @@ async def get_content_detail(content_id: int) -> Dict[str, Any]:
 
     conn.close()
     return content_data
+
+
+# === Catch-all route for SPA (must be last) ===
+@app.get("/{full_path:path}")
+async def serve_react_app(full_path: str):
+    """Serve the React app for any unmatched route (SPA support)."""
+    index_path = DIST_DIR / "index.html"
+    if not index_path.exists():
+        return HTMLResponse("""
+            <html><body>
+                <h1>Frontend Build Not Found</h1>
+                <p>Please run 'npm run build' in src/interface/web first.</p>
+            </body></html>
+        """, status_code=404)
+        
+    return FileResponse(index_path)
 
 
 if __name__ == "__main__":
