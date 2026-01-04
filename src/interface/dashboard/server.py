@@ -23,12 +23,14 @@ import json
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
 from src.store.semantic_store import SemanticStore
+from src.thought.rag import RAGEngine
 
 app = FastAPI(
     title="Unified AI System Dashboard",
@@ -45,26 +47,51 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize semantic store
+# Initialize systems
 store = SemanticStore()
+rag_engine = RAGEngine(store=store)
 
-# Get dashboard directory
-DASHBOARD_DIR = Path(__file__).parent
+# Mount React static files
+DIST_DIR = Path(__file__).parent.parent / "web" / "dist"
+if DIST_DIR.exists():
+    app.mount("/assets", StaticFiles(directory=str(DIST_DIR / "assets")), name="assets")
 
 
-@app.get("/", response_class=HTMLResponse)
-async def root():
-    """Serve the main dashboard HTML page."""
-    index_path = DASHBOARD_DIR / "index.html"
-    if not index_path.exists():
-        return HTMLResponse("""
-            <html><body>
-                <h1>Dashboard not found</h1>
-                <p>The index.html file is missing. Please ensure all dashboard files are present.</p>
-            </body></html>
-        """, status_code=404)
+@app.get("/api/search")
+async def search(
+    q: str = Query(..., description="Search query"),
+    mode: str = Query("hybrid", description="Search mode: hybrid, semantic, exact"),
+    limit: int = Query(20, ge=1, le=100)
+):
+    """
+    Search across captured content.
+    Mode 'semantic' or 'hybrid' uses the RAG engine for intelligence.
+    """
+    if mode == "exact":
+        # Simple DB search
+        results = store.search(q, limit=limit)
+        return {"results": results, "answer": None}
+    
+    # RAG Search (Ask my Data)
+    # Note: For a pure list of results without LLM answer, we could just call store.semantic_search
+    # But 'search' usually implies finding documents. 
+    # Let's support an 'ask' flag or infer intent? 
+    # For now, let's treat the main search bar as an "Ask" bar if it looks like a question,
+    # or just return results if it looks like a keyword.
+    
+    # Simple heuristic: if query length > 20 or contains space, assume it might be a question?
+    # Actually, let's just return the LLM answer if it's 'semantic' mode.
+    
+    rag_result = await rag_engine.query(q, limit=5)
+    
+    # Mix relevant documents (context) into the results list
+    return {
+        "answer": rag_result["answer"],
+        "results": rag_result["context"]
+    }
 
-    return FileResponse(index_path)
+if DIST_DIR.exists():
+    app.mount("/assets", StaticFiles(directory=str(DIST_DIR / "assets")), name="assets")
 
 
 @app.get("/api/timeline")
@@ -568,6 +595,461 @@ async def get_content_detail(content_id: int) -> Dict[str, Any]:
 
     conn.close()
     return content_data
+
+
+# === Capture Daemon Control ===
+import subprocess
+import signal
+
+# Track running capture processes
+capture_processes: Dict[str, subprocess.Popen] = {}
+
+@app.get("/api/capture/status")
+async def get_capture_status() -> Dict[str, Any]:
+    """Get the status of all capture daemons."""
+    status = {}
+    for name in ['screen', 'clipboard', 'file']:
+        proc = capture_processes.get(name)
+        if proc and proc.poll() is None:
+            status[name] = {
+                'running': True,
+                'pid': proc.pid
+            }
+        else:
+            status[name] = {
+                'running': False,
+                'pid': None
+            }
+    return status
+
+
+@app.post("/api/capture/start/{daemon_name}")
+async def start_capture_daemon(daemon_name: str) -> Dict[str, Any]:
+    """Start a specific capture daemon."""
+    if daemon_name not in ['screen', 'clipboard', 'file']:
+        raise HTTPException(status_code=400, detail=f"Unknown daemon: {daemon_name}")
+    
+    # Check if already running
+    proc = capture_processes.get(daemon_name)
+    if proc and proc.poll() is None:
+        return {"status": "already_running", "pid": proc.pid}
+    
+    # Map daemon names to modules
+    module_map = {
+        'screen': 'src.capture.screen_capture',
+        'clipboard': 'src.capture.clipboard_monitor', 
+        'file': 'src.capture.file_watcher'
+    }
+    
+    # Start the daemon
+    import sys
+    venv_python = Path(__file__).parent.parent.parent.parent / "venv" / "bin" / "python"
+    python_exe = str(venv_python) if venv_python.exists() else sys.executable
+    
+    proc = subprocess.Popen(
+        [python_exe, "-m", module_map[daemon_name]],
+        cwd=str(Path(__file__).parent.parent.parent.parent),
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL
+    )
+    capture_processes[daemon_name] = proc
+    
+    return {"status": "started", "pid": proc.pid}
+
+
+@app.post("/api/capture/stop/{daemon_name}")
+async def stop_capture_daemon(daemon_name: str) -> Dict[str, Any]:
+    """Stop a specific capture daemon."""
+    if daemon_name not in ['screen', 'clipboard', 'file']:
+        raise HTTPException(status_code=400, detail=f"Unknown daemon: {daemon_name}")
+    
+    proc = capture_processes.get(daemon_name)
+    if not proc or proc.poll() is not None:
+        return {"status": "not_running"}
+    
+    # Send SIGTERM to gracefully stop
+    proc.terminate()
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+    
+    capture_processes[daemon_name] = None
+    return {"status": "stopped"}
+
+
+@app.post("/api/capture/start-all")
+async def start_all_daemons() -> Dict[str, Any]:
+    """Start all capture daemons."""
+    results = {}
+    for name in ['screen', 'clipboard', 'file']:
+        result = await start_capture_daemon(name)
+        results[name] = result
+    return results
+
+
+@app.post("/api/capture/stop-all")
+async def stop_all_daemons() -> Dict[str, Any]:
+    """Stop all capture daemons."""
+    results = {}
+    for name in ['screen', 'clipboard', 'file']:
+        result = await stop_capture_daemon(name)
+        results[name] = result
+    return results
+
+
+@app.post("/api/entities/sync")
+async def sync_entities() -> Dict[str, Any]:
+    """
+    Sync all existing captures and extract entities.
+    This processes screen captures, clipboard items, and files.
+    """
+    try:
+        # Sync captures to semantic store (with entity extraction)
+        store.sync_from_captures()
+        
+        # Get updated stats
+        stats = store.get_stats()
+        
+        return {
+            "status": "success",
+            "message": "Entity extraction complete",
+            "total_content": stats.get("total_content", 0),
+            "total_entities": stats.get("total_entities", 0),
+            "by_entity_type": stats.get("by_entity_type", {})
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": str(e)
+        }
+
+
+@app.post("/api/entities/reprocess")
+async def reprocess_entities() -> Dict[str, Any]:
+    """
+    Re-extract entities from all content in semantic store.
+    This is useful if entity extraction was skipped or failed previously.
+    """
+    import sqlite3
+    
+    try:
+        conn = sqlite3.connect(store.db_path)
+        cursor = conn.cursor()
+        
+        # Clear existing entities
+        cursor.execute("DELETE FROM entities")
+        conn.commit()
+        
+        # Get all content
+        cursor.execute("""
+            SELECT id, content FROM semantic_content
+            WHERE content IS NOT NULL AND content != ''
+        """)
+        rows = cursor.fetchall()
+        
+        total_entities = 0
+        for content_id, content in rows:
+            entities = store._extract_entities(content)
+            for ent in entities:
+                cursor.execute("""
+                    INSERT INTO entities
+                    (content_id, entity_text, entity_type, start_char, end_char, metadata)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (
+                    content_id,
+                    ent['text'],
+                    ent['type'],
+                    ent['start'],
+                    ent['end'],
+                    json.dumps({'spacy_label': ent['label']})
+                ))
+                total_entities += 1
+        
+        conn.commit()
+        conn.close()
+        
+        # Get updated stats
+        stats = store.get_stats()
+        
+        return {
+            "status": "success",
+            "message": f"Re-extracted {total_entities} entities from {len(rows)} content items",
+            "total_entities": stats.get("total_entities", 0),
+            "by_entity_type": stats.get("by_entity_type", {})
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": str(e)
+        }
+
+
+@app.get("/api/graph")
+async def get_graph_data(
+    limit: int = Query(100, ge=10, le=500, description="Max entities to include")
+) -> Dict[str, Any]:
+    """
+    Get graph data for entity relationship visualization.
+    Returns nodes (entities) and links (co-occurrences in same content).
+    """
+    import sqlite3
+    
+    conn = sqlite3.connect(store.db_path)
+    cursor = conn.cursor()
+    
+    # Get top entities by frequency
+    cursor.execute("""
+        SELECT entity_text, entity_type, COUNT(*) as freq
+        FROM entities
+        GROUP BY entity_text, entity_type
+        ORDER BY freq DESC
+        LIMIT ?
+    """, (limit,))
+    
+    entities = cursor.fetchall()
+    
+    # Create nodes
+    nodes = []
+    entity_to_id = {}
+    for i, (text, etype, freq) in enumerate(entities):
+        node_id = f"e{i}"
+        entity_to_id[(text, etype)] = node_id
+        nodes.append({
+            "id": node_id,
+            "label": text,
+            "type": etype,
+            "size": min(5 + freq * 2, 30),  # Size based on frequency
+            "freq": freq
+        })
+    
+    # Find co-occurrences (entities that appear in same content)
+    links = []
+    link_set = set()
+    
+    # Get content_ids for each entity
+    entity_contents = {}
+    for (text, etype), node_id in entity_to_id.items():
+        cursor.execute("""
+            SELECT DISTINCT content_id FROM entities
+            WHERE entity_text = ? AND entity_type = ?
+        """, (text, etype))
+        entity_contents[node_id] = set(row[0] for row in cursor.fetchall())
+    
+    # Create links based on shared content
+    node_ids = list(entity_to_id.values())
+    for i, src_id in enumerate(node_ids):
+        for tgt_id in node_ids[i+1:]:
+            shared = entity_contents[src_id] & entity_contents[tgt_id]
+            if shared:
+                link_key = tuple(sorted([src_id, tgt_id]))
+                if link_key not in link_set:
+                    link_set.add(link_key)
+                    links.append({
+                        "source": src_id,
+                        "target": tgt_id,
+                        "value": len(shared)  # Strength = number of shared documents
+                    })
+    
+    conn.close()
+    
+    return {
+        "nodes": nodes,
+        "links": links,
+        "stats": {
+            "total_nodes": len(nodes),
+            "total_links": len(links)
+        }
+    }
+
+
+# === Settings API ===
+SETTINGS_FILE = Path.home() / ".unified-ai" / "settings.json"
+
+def get_default_settings() -> Dict[str, Any]:
+    """Get default settings."""
+    return {
+        "capture": {
+            "screen_interval": 30,
+            "clipboard_enabled": True,
+            "file_watch_enabled": True,
+            "watch_directories": ["~/Documents", "~/Desktop", "~/Downloads"],
+        },
+        "storage": {
+            "max_captures": 10000,
+            "max_days": 90,
+            "auto_cleanup": True,
+        },
+        "llm": {
+            "provider": "ollama",
+            "ollama_model": "mistral",
+            "ollama_url": "http://localhost:11434",
+            "openai_api_key": "",
+            "anthropic_api_key": "",
+        },
+        "ui": {
+            "theme": "auto",
+            "start_minimized": False,
+            "show_notifications": True,
+        }
+    }
+
+def load_settings() -> Dict[str, Any]:
+    """Load settings from file or return defaults."""
+    try:
+        if SETTINGS_FILE.exists():
+            return json.loads(SETTINGS_FILE.read_text())
+    except Exception:
+        pass
+    return get_default_settings()
+
+def save_settings(settings: Dict[str, Any]) -> bool:
+    """Save settings to file."""
+    try:
+        SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        SETTINGS_FILE.write_text(json.dumps(settings, indent=2))
+        return True
+    except Exception:
+        return False
+
+
+@app.get("/api/settings")
+async def get_settings() -> Dict[str, Any]:
+    """Get current settings."""
+    return load_settings()
+
+
+@app.put("/api/settings")
+async def update_settings(settings: Dict[str, Any]) -> Dict[str, Any]:
+    """Update settings."""
+    current = load_settings()
+    # Deep merge
+    for key, value in settings.items():
+        if isinstance(value, dict) and key in current:
+            current[key].update(value)
+        else:
+            current[key] = value
+    
+    if save_settings(current):
+        return {"status": "success", "settings": current}
+    raise HTTPException(status_code=500, detail="Failed to save settings")
+
+
+@app.post("/api/settings/reset")
+async def reset_settings() -> Dict[str, Any]:
+    """Reset settings to defaults."""
+    defaults = get_default_settings()
+    save_settings(defaults)
+    return {"status": "success", "settings": defaults}
+
+
+# === Browser Extension API ===
+@app.post("/api/browser/add")
+async def add_browser_history(data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Add browser history from extension.
+    Expected: { url, title, content?, timestamp? }
+    """
+    url = data.get("url", "")
+    title = data.get("title", "")
+    content = data.get("content", f"{title}\n{url}")
+    
+    # Store in semantic store
+    content_id = store.add(
+        content=content,
+        source_type="manual",  # Will be "browser" once we add support
+        metadata={"url": url, "title": title, "source": "browser_extension"}
+    )
+    
+    return {"status": "success", "content_id": content_id}
+
+
+@app.get("/api/browser/history")
+async def get_browser_history(
+    limit: int = Query(50, ge=1, le=200)
+) -> Dict[str, Any]:
+    """Get browser history from semantic store."""
+    import sqlite3
+    conn = sqlite3.connect(store.db_path)
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        SELECT id, content, timestamp, metadata FROM semantic_content
+        WHERE metadata LIKE '%browser_extension%'
+        ORDER BY timestamp DESC
+        LIMIT ?
+    """, (limit,))
+    
+    items = []
+    for row in cursor.fetchall():
+        meta = json.loads(row[3]) if row[3] else {}
+        items.append({
+            "id": row[0],
+            "url": meta.get("url", ""),
+            "title": meta.get("title", ""),
+            "timestamp": row[2],
+        })
+    
+    conn.close()
+    return {"items": items, "count": len(items)}
+
+
+# === Action Execution API ===
+@app.post("/api/actions/execute")
+async def execute_action(data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Execute an action via the System of Action.
+    Expected: { action: string, params?: object }
+    """
+    action = data.get("action", "")
+    params = data.get("params", {})
+    
+    if not action:
+        raise HTTPException(status_code=400, detail="Action is required")
+    
+    # Map common actions to handlers
+    results = []
+    
+    if action == "open_file":
+        path = params.get("path", "")
+        if path:
+            import subprocess
+            subprocess.run(["open", path])
+            results.append(f"Opened: {path}")
+    
+    elif action == "search":
+        query = params.get("query", "")
+        if query:
+            search_results = store.search(query, limit=5)
+            results = [{"content": r["content"][:200]} for r in search_results]
+    
+    elif action == "summarize_today":
+        # Get today's captures and summarize
+        from datetime import datetime
+        today = datetime.now().strftime("%Y-%m-%d")
+        search_results = store.search(f'"{today}"', limit=20)
+        results.append(f"Found {len(search_results)} items from today")
+    
+    else:
+        results.append(f"Unknown action: {action}")
+    
+    return {"status": "success", "action": action, "results": results}
+
+
+# === Catch-all route for SPA (must be last) ===
+@app.get("/{full_path:path}")
+async def serve_react_app(full_path: str):
+    """Serve the React app for any unmatched route (SPA support)."""
+    index_path = DIST_DIR / "index.html"
+    if not index_path.exists():
+        return HTMLResponse("""
+            <html><body>
+                <h1>Frontend Build Not Found</h1>
+                <p>Please run 'npm run build' in src/interface/web first.</p>
+            </body></html>
+        """, status_code=404)
+        
+    return FileResponse(index_path)
 
 
 if __name__ == "__main__":

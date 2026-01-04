@@ -387,7 +387,18 @@ class FileWatcher:
         Returns:
             Event record or None if not processed
         """
-        if not self._should_process(path):
+        if operation == "deleted":
+            # For deletion, we can't check if file exists or check size
+            # But we should still check if extension is one we care about and not ignored
+            if self._should_ignore(path):
+                return None
+            
+            suffix = path.suffix.lower()
+            if not (suffix in self.TEXT_EXTENSIONS or 
+                   suffix in self.CODE_EXTENSIONS or 
+                   suffix in self.DOCUMENT_EXTENSIONS):
+                return None
+        elif not self._should_process(path):
             return None
 
         timestamp = datetime.now().isoformat()

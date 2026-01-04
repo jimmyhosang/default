@@ -143,6 +143,24 @@ class ClipboardMonitor:
             if '/' in content or '\\' in content:
                 return "path"
 
+        # Check for structured data (JSON, XML, CSV)
+        if content.strip().startswith(('{', '[', '<')):
+            try:
+                json.loads(content)
+                return "data"
+            except (json.JSONDecodeError, ValueError):
+                if content.strip().startswith('<'):
+                    return "data"  # Likely XML
+
+        # CSV-like data
+        if ',' in content and '\n' in content:
+            lines = content.strip().split('\n')
+            if len(lines) > 1:
+                # Check if lines have similar comma counts
+                comma_counts = [line.count(',') for line in lines[:5]]
+                if len(set(comma_counts)) == 1 and comma_counts[0] > 0:
+                    return "data"
+
         # Check for code - multiple heuristics
         code_indicators = [
             r'\bdef\s+\w+\s*\(',  # Python function
@@ -170,24 +188,6 @@ class ClipboardMonitor:
         for pattern in code_indicators:
             if re.search(pattern, content):
                 return "code"
-
-        # Check for structured data (JSON, XML, CSV)
-        if content.strip().startswith(('{', '[', '<')):
-            try:
-                json.loads(content)
-                return "data"
-            except (json.JSONDecodeError, ValueError):
-                if content.strip().startswith('<'):
-                    return "data"  # Likely XML
-
-        # CSV-like data
-        if ',' in content and '\n' in content:
-            lines = content.strip().split('\n')
-            if len(lines) > 1:
-                # Check if lines have similar comma counts
-                comma_counts = [line.count(',') for line in lines[:5]]
-                if len(set(comma_counts)) == 1 and comma_counts[0] > 0:
-                    return "data"
 
         # Default to text
         return "text"
