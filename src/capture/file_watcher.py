@@ -43,6 +43,13 @@ except ImportError:
     DOCX_SUPPORT = False
     print("Warning: python-docx not installed. DOCX extraction disabled.")
 
+# Import async document extractor
+try:
+    from .document_extractor import DocumentExtractor, ExtractionStatus
+    ASYNC_EXTRACTOR_AVAILABLE = True
+except ImportError:
+    ASYNC_EXTRACTOR_AVAILABLE = False
+
 
 FileOperation = Literal["created", "modified", "deleted"]
 
@@ -70,6 +77,7 @@ class FileWatcher:
         db_path: Path = Path("~/.unified-ai/capture.db").expanduser(),
         max_file_size: int = 10 * 1024 * 1024,  # 10MB
         ignore_patterns: Optional[Set[str]] = None,
+        use_async_extraction: bool = True,  # Use async extractor for documents
     ):
         """
         Initialize file watcher.
@@ -79,6 +87,7 @@ class FileWatcher:
             db_path: Path to SQLite database
             max_file_size: Maximum file size to process in bytes
             ignore_patterns: Set of patterns to ignore (e.g., {'node_modules', '.git'})
+            use_async_extraction: Use async document extractor for PDF/DOCX files
         """
         if watch_dirs is None:
             home = Path.home()
@@ -97,6 +106,15 @@ class FileWatcher:
         }
         self.running = False
         self.observer: Optional[Observer] = None
+
+        # Initialize async document extractor if available and enabled
+        self.use_async_extraction = use_async_extraction and ASYNC_EXTRACTOR_AVAILABLE
+        self._async_extractor: Optional["DocumentExtractor"] = None
+        if self.use_async_extraction:
+            self._async_extractor = DocumentExtractor(max_file_size=max_file_size)
+
+        # Pending async extractions queue
+        self._extraction_queue: asyncio.Queue = asyncio.Queue()
 
         # Ensure directory exists
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -454,6 +472,116 @@ class FileWatcher:
 
         return event
 
+    async def process_file_async(
+        self,
+        path: Path,
+        operation: FileOperation
+    ) -> Optional[dict]:
+        """
+        Process a file system event asynchronously.
+        Uses async document extraction for better performance with large files.
+
+        Args:
+            path: File path
+            operation: Type of operation (created, modified, deleted)
+
+        Returns:
+            Event record or None if not processed
+        """
+        if operation == "deleted":
+            return self.process_file(path, operation)
+
+        if not self._should_process(path):
+            return None
+
+        suffix = path.suffix.lower()
+
+        # Use async extraction for documents if available
+        if suffix in self.DOCUMENT_EXTENSIONS and self._async_extractor:
+            timestamp = datetime.now().isoformat()
+            file_path = str(path.absolute())
+            file_name = path.name
+            file_type = self._classify_file_type(path)
+
+            try:
+                # Use async extractor
+                result = await self._async_extractor.extract(path)
+
+                if result.status == ExtractionStatus.FAILED:
+                    print(f"Async extraction failed for {path}: {result.error}")
+                    # Fall back to sync extraction
+                    return self.process_file(path, operation)
+
+                content = result.text
+                content_hash = result.content_hash or self._compute_file_hash(content)
+                file_size = path.stat().st_size
+
+                event = {
+                    'timestamp': timestamp,
+                    'file_path': file_path,
+                    'file_name': file_name,
+                    'operation': operation,
+                    'content_hash': content_hash,
+                    'content': content,
+                    'file_type': file_type,
+                    'file_size': file_size,
+                    'metadata': {
+                        'extension': path.suffix,
+                        'content_length': len(content),
+                        'extraction_method': 'async',
+                        'page_count': result.page_count,
+                        'extracted_pages': result.extracted_pages,
+                        'word_count': result.word_count,
+                        'extraction_time_ms': result.extraction_time_ms,
+                    }
+                }
+
+                if operation == "modified":
+                    self._store_version(file_path, content_hash, file_size, timestamp)
+
+                self._store_event(event)
+                return event
+
+            except Exception as e:
+                print(f"Async extraction error for {path}: {e}")
+                # Fall back to sync extraction
+                return self.process_file(path, operation)
+
+        # For non-document files, use sync processing
+        return self.process_file(path, operation)
+
+    async def process_extraction_queue(self):
+        """Background task to process queued document extractions."""
+        while self.running:
+            try:
+                # Wait for items with timeout
+                try:
+                    path, operation = await asyncio.wait_for(
+                        self._extraction_queue.get(),
+                        timeout=1.0
+                    )
+                except asyncio.TimeoutError:
+                    continue
+
+                result = await self.process_file_async(path, operation)
+                if result:
+                    print(f"[{result['timestamp'][:19]}] Async {operation}: {result['file_name']} ({result['file_type']})")
+
+                self._extraction_queue.task_done()
+
+            except Exception as e:
+                print(f"Extraction queue error: {e}")
+
+    def queue_for_extraction(self, path: Path, operation: FileOperation):
+        """Queue a file for async extraction."""
+        if self.use_async_extraction and path.suffix.lower() in self.DOCUMENT_EXTENSIONS:
+            try:
+                self._extraction_queue.put_nowait((path, operation))
+                return True
+            except asyncio.QueueFull:
+                return False
+        return False
+
     def _store_event(self, event: dict):
         """Store file event in SQLite database."""
         conn = sqlite3.connect(self.db_path)
@@ -504,6 +632,8 @@ class FileWatcher:
             return
 
         print(f"Database: {self.db_path}")
+        if self.use_async_extraction:
+            print("Async document extraction: enabled")
         print("Press Ctrl+C to stop")
 
         # Create event handler
@@ -517,11 +647,23 @@ class FileWatcher:
 
         self.observer.start()
 
+        # Start extraction queue processor if async extraction is enabled
+        extraction_task = None
+        if self.use_async_extraction:
+            extraction_task = asyncio.create_task(self.process_extraction_queue())
+
         try:
             while self.running:
                 await asyncio.sleep(1)
         except KeyboardInterrupt:
             self.stop()
+        finally:
+            if extraction_task:
+                extraction_task.cancel()
+                try:
+                    await extraction_task
+                except asyncio.CancelledError:
+                    pass
 
     def stop(self):
         """Stop the file monitoring."""

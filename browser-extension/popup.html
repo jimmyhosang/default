@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Unified AI Capture</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Unified AI</h1>
+      <span class="status" id="status">Checking...</span>
+    </header>
+
+    <div class="actions">
+      <button id="capturePageBtn" class="btn primary">
+        <span class="icon">📄</span>
+        Capture Page
+      </button>
+
+      <button id="captureSelectionBtn" class="btn secondary">
+        <span class="icon">✂️</span>
+        Capture Selection
+      </button>
+
+      <button id="captureClipboardBtn" class="btn secondary">
+        <span class="icon">📋</span>
+        Capture Clipboard
+      </button>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="options">
+      <h3>Capture Options</h3>
+
+      <label class="checkbox-label">
+        <input type="checkbox" id="includeMetadata" checked>
+        Include page metadata
+      </label>
+
+      <label class="checkbox-label">
+        <input type="checkbox" id="includeLinks" checked>
+        Extract links
+      </label>
+
+      <label class="checkbox-label">
+        <input type="checkbox" id="includeImages">
+        Extract image descriptions
+      </label>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="server-config">
+      <h3>Server Configuration</h3>
+      <div class="input-group">
+        <label for="serverUrl">Server URL</label>
+        <input type="text" id="serverUrl" value="http://localhost:8000" placeholder="http://localhost:8000">
+      </div>
+      <button id="saveConfigBtn" class="btn small">Save</button>
+      <button id="testConnectionBtn" class="btn small secondary">Test</button>
+    </div>
+
+    <div class="recent-captures" id="recentCaptures">
+      <h3>Recent Captures</h3>
+      <div id="capturesList" class="captures-list">
+        <p class="empty">No captures yet</p>
+      </div>
+    </div>
+
+    <footer>
+      <a href="#" id="openDashboard">Open Dashboard</a>
+      <span class="version">v1.0.0</span>
+    </footer>
+  </div>
+
+  <div id="notification" class="notification hidden"></div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

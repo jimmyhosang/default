@@ -7,6 +7,7 @@ This module provides a web dashboard that visualizes all captured data:
 - Entity views (people, projects, companies)
 - Daily/weekly summary statistics
 - Relationship graph between entities
+- Real-time updates via WebSocket
 
 Usage:
     python -m uvicorn src.interface.dashboard.server:app --reload
@@ -15,14 +16,18 @@ Usage:
 """
 
 from pathlib import Path
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Set
 from datetime import datetime, timedelta
 from collections import defaultdict
 import json
+import asyncio
+import hashlib
+import secrets
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect, Depends, status
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel, Field, validator
 from fastapi.middleware.cors import CORSMiddleware
 import re
@@ -97,6 +102,123 @@ app.add_middleware(
 # Initialize systems
 store = SemanticStore()
 rag_engine = RAGEngine(store=store)
+
+# === Authentication ===
+security = HTTPBasic()
+AUTH_FILE = Path.home() / ".unified-ai" / "auth.json"
+
+
+def load_auth_config() -> Dict[str, Any]:
+    """Load authentication configuration."""
+    if AUTH_FILE.exists():
+        try:
+            return json.loads(AUTH_FILE.read_text())
+        except Exception:
+            pass
+    return {"enabled": False, "users": {}}
+
+
+def save_auth_config(config: Dict[str, Any]) -> bool:
+    """Save authentication configuration."""
+    try:
+        AUTH_FILE.parent.mkdir(parents=True, exist_ok=True)
+        AUTH_FILE.write_text(json.dumps(config, indent=2))
+        return True
+    except Exception:
+        return False
+
+
+def hash_password(password: str) -> str:
+    """Hash password using SHA-256."""
+    return hashlib.sha256(password.encode()).hexdigest()
+
+
+def verify_credentials(credentials: HTTPBasicCredentials = Depends(security)) -> str:
+    """Verify HTTP Basic credentials."""
+    auth_config = load_auth_config()
+
+    if not auth_config.get("enabled", False):
+        return "anonymous"
+
+    users = auth_config.get("users", {})
+    if credentials.username in users:
+        stored_hash = users[credentials.username]
+        if secrets.compare_digest(hash_password(credentials.password), stored_hash):
+            return credentials.username
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid credentials",
+        headers={"WWW-Authenticate": "Basic"},
+    )
+
+
+def optional_auth(credentials: HTTPBasicCredentials = Depends(security)) -> Optional[str]:
+    """Optional authentication - returns None if auth is disabled."""
+    auth_config = load_auth_config()
+    if not auth_config.get("enabled", False):
+        return None
+    return verify_credentials(credentials)
+
+
+# === WebSocket Manager ===
+class ConnectionManager:
+    """Manages WebSocket connections for real-time updates."""
+
+    def __init__(self):
+        self.active_connections: Set[WebSocket] = set()
+        self._lock = asyncio.Lock()
+
+    async def connect(self, websocket: WebSocket):
+        """Accept and register a new WebSocket connection."""
+        await websocket.accept()
+        async with self._lock:
+            self.active_connections.add(websocket)
+        logger.info(f"WebSocket connected. Total: {len(self.active_connections)}")
+
+    async def disconnect(self, websocket: WebSocket):
+        """Remove a WebSocket connection."""
+        async with self._lock:
+            self.active_connections.discard(websocket)
+        logger.info(f"WebSocket disconnected. Total: {len(self.active_connections)}")
+
+    async def broadcast(self, message: Dict[str, Any]):
+        """Broadcast a message to all connected clients."""
+        if not self.active_connections:
+            return
+
+        dead_connections = set()
+        message_json = json.dumps(message)
+
+        async with self._lock:
+            for connection in self.active_connections:
+                try:
+                    await connection.send_text(message_json)
+                except Exception:
+                    dead_connections.add(connection)
+
+            # Clean up dead connections
+            self.active_connections -= dead_connections
+
+    async def send_personal(self, websocket: WebSocket, message: Dict[str, Any]):
+        """Send a message to a specific client."""
+        try:
+            await websocket.send_text(json.dumps(message))
+        except Exception:
+            await self.disconnect(websocket)
+
+
+ws_manager = ConnectionManager()
+
+
+async def notify_data_change(change_type: str, data: Dict[str, Any] = None):
+    """Notify all connected clients of a data change."""
+    await ws_manager.broadcast({
+        "type": change_type,
+        "timestamp": datetime.now().isoformat(),
+        "data": data or {}
+    })
+
 
 # Mount React static files
 DIST_DIR = Path(__file__).parent.parent / "web" / "dist"
@@ -1315,6 +1437,179 @@ async def export_csv(
         media_type="text/csv",
         headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
+
+
+# === WebSocket Endpoint ===
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    """
+    WebSocket endpoint for real-time updates.
+
+    Clients connect here to receive:
+    - New capture notifications
+    - Stats updates
+    - Entity extraction completion
+    - Search result updates
+    """
+    await ws_manager.connect(websocket)
+
+    try:
+        # Send initial connection confirmation
+        await ws_manager.send_personal(websocket, {
+            "type": "connected",
+            "timestamp": datetime.now().isoformat(),
+            "message": "Connected to real-time updates"
+        })
+
+        # Keep connection alive and handle incoming messages
+        while True:
+            try:
+                # Wait for messages from client (ping/pong, subscriptions)
+                data = await asyncio.wait_for(
+                    websocket.receive_text(),
+                    timeout=30.0
+                )
+
+                # Handle client messages
+                try:
+                    message = json.loads(data)
+                    msg_type = message.get("type", "")
+
+                    if msg_type == "ping":
+                        await ws_manager.send_personal(websocket, {"type": "pong"})
+
+                    elif msg_type == "subscribe":
+                        # Client wants to subscribe to specific events
+                        await ws_manager.send_personal(websocket, {
+                            "type": "subscribed",
+                            "topics": message.get("topics", ["all"])
+                        })
+
+                    elif msg_type == "get_stats":
+                        # Client requests current stats
+                        stats = store.get_stats()
+                        await ws_manager.send_personal(websocket, {
+                            "type": "stats",
+                            "data": stats
+                        })
+
+                except json.JSONDecodeError:
+                    pass
+
+            except asyncio.TimeoutError:
+                # Send keepalive ping
+                await ws_manager.send_personal(websocket, {"type": "ping"})
+
+    except WebSocketDisconnect:
+        await ws_manager.disconnect(websocket)
+    except Exception as e:
+        logger.error(f"WebSocket error: {e}")
+        await ws_manager.disconnect(websocket)
+
+
+# === Authentication API ===
+class UserCreate(BaseModel):
+    """Model for creating a new user."""
+    username: str = Field(..., min_length=3, max_length=50)
+    password: str = Field(..., min_length=8, max_length=100)
+
+
+class AuthConfig(BaseModel):
+    """Model for auth configuration."""
+    enabled: bool = False
+
+
+@app.get("/api/auth/status")
+async def get_auth_status() -> Dict[str, Any]:
+    """Get current authentication status."""
+    config = load_auth_config()
+    return {
+        "enabled": config.get("enabled", False),
+        "user_count": len(config.get("users", {}))
+    }
+
+
+@app.post("/api/auth/enable")
+async def enable_auth(user: UserCreate) -> Dict[str, Any]:
+    """Enable authentication and create initial admin user."""
+    config = load_auth_config()
+
+    if config.get("enabled"):
+        raise HTTPException(status_code=400, detail="Authentication already enabled")
+
+    # Create initial user
+    config["enabled"] = True
+    config["users"] = {
+        user.username: hash_password(user.password)
+    }
+
+    if save_auth_config(config):
+        logger.info(f"Authentication enabled with user: {user.username}")
+        return {"status": "success", "message": "Authentication enabled"}
+
+    raise HTTPException(status_code=500, detail="Failed to save auth config")
+
+
+@app.post("/api/auth/disable")
+async def disable_auth(username: str = Depends(verify_credentials)) -> Dict[str, Any]:
+    """Disable authentication (requires current auth)."""
+    config = load_auth_config()
+    config["enabled"] = False
+
+    if save_auth_config(config):
+        logger.info(f"Authentication disabled by: {username}")
+        return {"status": "success", "message": "Authentication disabled"}
+
+    raise HTTPException(status_code=500, detail="Failed to save auth config")
+
+
+@app.post("/api/auth/user")
+async def add_user(
+    user: UserCreate,
+    username: str = Depends(verify_credentials)
+) -> Dict[str, Any]:
+    """Add a new user (requires authentication)."""
+    config = load_auth_config()
+
+    if user.username in config.get("users", {}):
+        raise HTTPException(status_code=400, detail="User already exists")
+
+    config.setdefault("users", {})[user.username] = hash_password(user.password)
+
+    if save_auth_config(config):
+        logger.info(f"User created: {user.username} (by {username})")
+        return {"status": "success", "message": f"User {user.username} created"}
+
+    raise HTTPException(status_code=500, detail="Failed to save auth config")
+
+
+@app.delete("/api/auth/user/{target_username}")
+async def delete_user(
+    target_username: str,
+    username: str = Depends(verify_credentials)
+) -> Dict[str, Any]:
+    """Delete a user (requires authentication)."""
+    if target_username == username:
+        raise HTTPException(status_code=400, detail="Cannot delete yourself")
+
+    config = load_auth_config()
+
+    if target_username not in config.get("users", {}):
+        raise HTTPException(status_code=404, detail="User not found")
+
+    del config["users"][target_username]
+
+    if save_auth_config(config):
+        logger.info(f"User deleted: {target_username} (by {username})")
+        return {"status": "success", "message": f"User {target_username} deleted"}
+
+    raise HTTPException(status_code=500, detail="Failed to save auth config")
+
+
+@app.get("/api/auth/verify")
+async def verify_auth(username: str = Depends(verify_credentials)) -> Dict[str, Any]:
+    """Verify current authentication."""
+    return {"status": "authenticated", "username": username}
 
 
 # === Catch-all route for SPA (must be last) ===

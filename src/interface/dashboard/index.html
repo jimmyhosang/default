@@ -5,6 +5,46 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Unified AI System Dashboard</title>
     <style>
+        /* CSS Custom Properties for theming */
+        :root {
+            --bg-primary: #f5f5f5;
+            --bg-secondary: white;
+            --bg-tertiary: #f9f9f9;
+            --bg-hover: #f0f0f0;
+            --text-primary: #333;
+            --text-secondary: #2c3e50;
+            --text-muted: #7f8c8d;
+            --border-color: #ddd;
+            --border-light: #e0e0e0;
+            --shadow-color: rgba(0,0,0,0.1);
+            --accent-color: #3498db;
+            --accent-hover: #2980b9;
+            --success-color: #27ae60;
+            --error-color: #e74c3c;
+            --error-bg: #fee;
+            --warning-color: #f39c12;
+        }
+
+        /* Dark mode theme */
+        [data-theme="dark"] {
+            --bg-primary: #1a1a2e;
+            --bg-secondary: #16213e;
+            --bg-tertiary: #1f2937;
+            --bg-hover: #2d3748;
+            --text-primary: #e2e8f0;
+            --text-secondary: #cbd5e0;
+            --text-muted: #a0aec0;
+            --border-color: #4a5568;
+            --border-light: #374151;
+            --shadow-color: rgba(0,0,0,0.3);
+            --accent-color: #60a5fa;
+            --accent-hover: #3b82f6;
+            --success-color: #34d399;
+            --error-color: #f87171;
+            --error-bg: #3c1618;
+            --warning-color: #fbbf24;
+        }
+
         * {
             margin: 0;
             padding: 0;
@@ -13,9 +53,10 @@
 
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            background: #f5f5f5;
-            color: #333;
+            background: var(--bg-primary);
+            color: var(--text-primary);
             line-height: 1.6;
+            transition: background-color 0.3s, color 0.3s;
         }
 
         .container {
@@ -25,28 +66,182 @@
         }
 
         header {
-            background: white;
+            background: var(--bg-secondary);
             padding: 20px;
             margin-bottom: 30px;
             border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            box-shadow: 0 2px 4px var(--shadow-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header-content {
+            flex: 1;
+        }
+
+        .header-controls {
+            display: flex;
+            align-items: center;
+            gap: 15px;
         }
 
         h1 {
-            color: #2c3e50;
+            color: var(--text-secondary);
             margin-bottom: 10px;
         }
 
         .subtitle {
-            color: #7f8c8d;
+            color: var(--text-muted);
             font-size: 14px;
+        }
+
+        /* Theme toggle button */
+        .theme-toggle {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 50px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 44px;
+            height: 44px;
+            font-size: 20px;
+            transition: all 0.3s;
+        }
+
+        .theme-toggle:hover {
+            background: var(--bg-hover);
+            transform: scale(1.05);
+        }
+
+        .theme-toggle .icon-sun,
+        .theme-toggle .icon-moon {
+            transition: opacity 0.3s, transform 0.3s;
+        }
+
+        [data-theme="dark"] .theme-toggle .icon-sun {
+            display: block;
+        }
+
+        [data-theme="dark"] .theme-toggle .icon-moon {
+            display: none;
+        }
+
+        .theme-toggle .icon-sun {
+            display: none;
+        }
+
+        .theme-toggle .icon-moon {
+            display: block;
+        }
+
+        /* Toast notifications */
+        .toast-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            max-width: 400px;
+        }
+
+        .toast {
+            padding: 16px 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px var(--shadow-color);
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            animation: slideIn 0.3s ease;
+            background: var(--bg-secondary);
+            border-left: 4px solid var(--accent-color);
+        }
+
+        .toast.success {
+            border-left-color: var(--success-color);
+        }
+
+        .toast.error {
+            border-left-color: var(--error-color);
+        }
+
+        .toast.warning {
+            border-left-color: var(--warning-color);
+        }
+
+        .toast-icon {
+            font-size: 20px;
+            flex-shrink: 0;
+        }
+
+        .toast.success .toast-icon { color: var(--success-color); }
+        .toast.error .toast-icon { color: var(--error-color); }
+        .toast.warning .toast-icon { color: var(--warning-color); }
+        .toast.info .toast-icon { color: var(--accent-color); }
+
+        .toast-content {
+            flex: 1;
+        }
+
+        .toast-title {
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .toast-message {
+            font-size: 14px;
+            color: var(--text-muted);
+        }
+
+        .toast-close {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            padding: 0;
+            font-size: 18px;
+            line-height: 1;
+        }
+
+        .toast-close:hover {
+            color: var(--text-primary);
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        @keyframes slideOut {
+            from {
+                transform: translateX(0);
+                opacity: 1;
+            }
+            to {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+        }
+
+        .toast.hiding {
+            animation: slideOut 0.3s ease forwards;
         }
 
         .tabs {
             display: flex;
             gap: 10px;
             margin-bottom: 20px;
-            border-bottom: 2px solid #e0e0e0;
+            border-bottom: 2px solid var(--border-light);
         }
 
         .tab {
@@ -55,27 +250,27 @@
             border: none;
             cursor: pointer;
             font-size: 16px;
-            color: #666;
+            color: var(--text-muted);
             border-bottom: 2px solid transparent;
             margin-bottom: -2px;
             transition: all 0.3s;
         }
 
         .tab:hover {
-            color: #3498db;
+            color: var(--accent-color);
         }
 
         .tab.active {
-            color: #3498db;
-            border-bottom-color: #3498db;
+            color: var(--accent-color);
+            border-bottom-color: var(--accent-color);
         }
 
         .tab-content {
             display: none;
-            background: white;
+            background: var(--bg-secondary);
             padding: 20px;
             border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            box-shadow: 0 2px 4px var(--shadow-color);
         }
 
         .tab-content.active {
@@ -91,14 +286,21 @@
         .search-box input {
             flex: 1;
             padding: 12px;
-            border: 1px solid #ddd;
+            border: 1px solid var(--border-color);
             border-radius: 4px;
             font-size: 14px;
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+        }
+
+        .search-box input:focus {
+            outline: none;
+            border-color: var(--accent-color);
         }
 
         .search-box button {
             padding: 12px 24px;
-            background: #3498db;
+            background: var(--accent-color);
             color: white;
             border: none;
             border-radius: 4px;
@@ -108,7 +310,7 @@
         }
 
         .search-box button:hover {
-            background: #2980b9;
+            background: var(--accent-hover);
         }
 
         .search-options {
@@ -116,6 +318,7 @@
             gap: 15px;
             margin-bottom: 20px;
             font-size: 14px;
+            color: var(--text-primary);
         }
 
         .search-options label {
@@ -123,6 +326,14 @@
             align-items: center;
             gap: 5px;
             cursor: pointer;
+        }
+
+        .search-options select {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 4px 8px;
         }
 
         .stats-grid {
@@ -137,7 +348,7 @@
             color: white;
             padding: 20px;
             border-radius: 8px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            box-shadow: 0 4px 6px var(--shadow-color);
         }
 
         .stat-card.alt1 {
@@ -171,27 +382,27 @@
         .timeline-item {
             padding: 15px;
             margin-bottom: 10px;
-            background: #f9f9f9;
-            border-left: 3px solid #3498db;
+            background: var(--bg-tertiary);
+            border-left: 3px solid var(--accent-color);
             border-radius: 4px;
             transition: all 0.3s;
         }
 
         .timeline-item:hover {
-            background: #f0f0f0;
+            background: var(--bg-hover);
             transform: translateX(5px);
         }
 
         .timeline-time {
             font-size: 12px;
-            color: #7f8c8d;
+            color: var(--text-muted);
             margin-bottom: 5px;
         }
 
         .timeline-source {
             display: inline-block;
             padding: 2px 8px;
-            background: #3498db;
+            background: var(--accent-color);
             color: white;
             border-radius: 3px;
             font-size: 11px;
@@ -200,7 +411,7 @@
 
         .timeline-content {
             margin-top: 10px;
-            color: #2c3e50;
+            color: var(--text-secondary);
         }
 
         .entity-list {
@@ -211,42 +422,42 @@
 
         .entity-card {
             padding: 15px;
-            background: #f9f9f9;
+            background: var(--bg-tertiary);
             border-radius: 4px;
-            border-left: 3px solid #27ae60;
+            border-left: 3px solid var(--success-color);
         }
 
         .entity-card.person {
-            border-left-color: #e74c3c;
+            border-left-color: var(--error-color);
         }
 
         .entity-card.org {
-            border-left-color: #3498db;
+            border-left-color: var(--accent-color);
         }
 
         .entity-name {
             font-weight: bold;
             margin-bottom: 5px;
-            color: #2c3e50;
+            color: var(--text-secondary);
         }
 
         .entity-type {
             font-size: 12px;
-            color: #7f8c8d;
+            color: var(--text-muted);
             margin-bottom: 5px;
         }
 
         .entity-mentions {
             font-size: 12px;
-            color: #7f8c8d;
+            color: var(--text-muted);
         }
 
         .entity-context {
             margin-top: 10px;
             padding-top: 10px;
-            border-top: 1px solid #ddd;
+            border-top: 1px solid var(--border-color);
             font-size: 13px;
-            color: #555;
+            color: var(--text-muted);
         }
 
         .search-results {
@@ -256,36 +467,36 @@
         .result-item {
             padding: 15px;
             margin-bottom: 10px;
-            background: #f9f9f9;
+            background: var(--bg-tertiary);
             border-radius: 4px;
             border-left: 3px solid #9b59b6;
         }
 
         .result-meta {
             font-size: 12px;
-            color: #7f8c8d;
+            color: var(--text-muted);
             margin-bottom: 8px;
         }
 
         .chart-container {
             margin: 20px 0;
             padding: 20px;
-            background: white;
+            background: var(--bg-secondary);
             border-radius: 8px;
         }
 
         .loading {
             text-align: center;
             padding: 40px;
-            color: #7f8c8d;
+            color: var(--text-muted);
         }
 
         .error {
             padding: 15px;
-            background: #fee;
-            border-left: 3px solid #e74c3c;
+            background: var(--error-bg);
+            border-left: 3px solid var(--error-color);
             border-radius: 4px;
-            color: #c0392b;
+            color: var(--error-color);
             margin: 20px 0;
         }
 
@@ -297,37 +508,95 @@
 
         .filters select {
             padding: 8px 12px;
-            border: 1px solid #ddd;
+            border: 1px solid var(--border-color);
             border-radius: 4px;
-            background: white;
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
             cursor: pointer;
         }
 
         #relationship-graph {
             width: 100%;
             height: 600px;
-            border: 1px solid #ddd;
+            border: 1px solid var(--border-color);
             border-radius: 4px;
-            background: #fafafa;
+            background: var(--bg-tertiary);
         }
 
         .empty-state {
             text-align: center;
             padding: 60px 20px;
-            color: #7f8c8d;
+            color: var(--text-muted);
         }
 
         .empty-state h3 {
             margin-bottom: 10px;
-            color: #95a5a6;
+            color: var(--text-muted);
+        }
+
+        /* Capabilities status */
+        .capabilities-status {
+            margin-top: 20px;
+            padding: 15px;
+            background: var(--bg-tertiary);
+            border-radius: 4px;
+        }
+
+        .capabilities-status h3 {
+            margin-bottom: 10px;
+            color: var(--text-secondary);
+        }
+
+        .capabilities-status p {
+            margin: 5px 0;
+            color: var(--text-primary);
+        }
+
+        /* Keyboard shortcuts hint */
+        .keyboard-hint {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 8px 12px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            font-size: 12px;
+            color: var(--text-muted);
+            box-shadow: 0 2px 4px var(--shadow-color);
+        }
+
+        .keyboard-hint kbd {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 3px;
+            padding: 2px 6px;
+            font-family: monospace;
+            margin: 0 2px;
         }
     </style>
 </head>
 <body>
+    <!-- Toast container for notifications -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <!-- Keyboard shortcuts hint -->
+    <div class="keyboard-hint">
+        <kbd>?</kbd> Shortcuts
+    </div>
+
     <div class="container">
         <header>
-            <h1>Unified AI System Dashboard</h1>
-            <div class="subtitle">Local-first AI system visualization • Running on localhost:8000</div>
+            <div class="header-content">
+                <h1>Unified AI System Dashboard</h1>
+                <div class="subtitle">Local-first AI system visualization • Running on localhost:8000</div>
+            </div>
+            <div class="header-controls">
+                <button class="theme-toggle" onclick="toggleTheme()" title="Toggle dark mode (Ctrl+D)">
+                    <span class="icon-moon">🌙</span>
+                    <span class="icon-sun">☀️</span>
+                </button>
+            </div>
         </header>
 
         <div class="tabs">
@@ -419,7 +688,184 @@
     <script>
         const API_BASE = '';
 
+        // ===========================================
+        // Theme Management
+        // ===========================================
+        function initTheme() {
+            const savedTheme = localStorage.getItem('theme');
+            const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+
+            if (savedTheme) {
+                document.documentElement.setAttribute('data-theme', savedTheme);
+            } else if (prefersDark) {
+                document.documentElement.setAttribute('data-theme', 'dark');
+            }
+        }
+
+        function toggleTheme() {
+            const currentTheme = document.documentElement.getAttribute('data-theme');
+            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+
+            document.documentElement.setAttribute('data-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
+
+            showToast('info', 'Theme Changed', `Switched to ${newTheme} mode`);
+        }
+
+        // Initialize theme immediately
+        initTheme();
+
+        // ===========================================
+        // Toast Notification System
+        // ===========================================
+        const TOAST_ICONS = {
+            success: '✓',
+            error: '✕',
+            warning: '⚠',
+            info: 'ℹ'
+        };
+
+        function showToast(type, title, message, duration = 5000) {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+
+            toast.innerHTML = `
+                <span class="toast-icon">${TOAST_ICONS[type] || 'ℹ'}</span>
+                <div class="toast-content">
+                    <div class="toast-title">${escapeHtml(title)}</div>
+                    <div class="toast-message">${escapeHtml(message)}</div>
+                </div>
+                <button class="toast-close" onclick="closeToast(this.parentElement)">&times;</button>
+            `;
+
+            container.appendChild(toast);
+
+            // Auto-dismiss
+            if (duration > 0) {
+                setTimeout(() => closeToast(toast), duration);
+            }
+
+            return toast;
+        }
+
+        function closeToast(toast) {
+            if (!toast || toast.classList.contains('hiding')) return;
+
+            toast.classList.add('hiding');
+            setTimeout(() => {
+                if (toast.parentElement) {
+                    toast.parentElement.removeChild(toast);
+                }
+            }, 300);
+        }
+
+        // ===========================================
+        // Keyboard Shortcuts
+        // ===========================================
+        const SHORTCUTS = {
+            '?': showShortcutsHelp,
+            '1': () => switchTabByName('overview'),
+            '2': () => switchTabByName('timeline'),
+            '3': () => switchTabByName('search'),
+            '4': () => switchTabByName('entities'),
+            '5': () => switchTabByName('relationships'),
+            '/': focusSearch,
+            'r': refreshCurrentTab,
+        };
+
+        function initKeyboardShortcuts() {
+            document.addEventListener('keydown', (e) => {
+                // Don't trigger shortcuts when typing in input fields
+                if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') {
+                    // Escape unfocuses
+                    if (e.key === 'Escape') {
+                        e.target.blur();
+                    }
+                    return;
+                }
+
+                // Ctrl+D for dark mode toggle
+                if (e.ctrlKey && e.key === 'd') {
+                    e.preventDefault();
+                    toggleTheme();
+                    return;
+                }
+
+                // Regular shortcuts (no modifier keys except shift)
+                if (e.ctrlKey || e.altKey || e.metaKey) return;
+
+                const handler = SHORTCUTS[e.key];
+                if (handler) {
+                    e.preventDefault();
+                    handler();
+                }
+            });
+        }
+
+        function showShortcutsHelp() {
+            const shortcuts = `
+                <div style="text-align: left;">
+                    <p><kbd>1-5</kbd> Switch tabs (Overview, Timeline, Search, Entities, Relationships)</p>
+                    <p><kbd>/</kbd> Focus search</p>
+                    <p><kbd>r</kbd> Refresh current tab</p>
+                    <p><kbd>Ctrl+D</kbd> Toggle dark mode</p>
+                    <p><kbd>Esc</kbd> Unfocus input</p>
+                    <p><kbd>?</kbd> Show this help</p>
+                </div>
+            `;
+            showToast('info', 'Keyboard Shortcuts', shortcuts.replace(/<[^>]*>/g, ' ').trim(), 8000);
+        }
+
+        function switchTabByName(tabName) {
+            const tabButton = Array.from(document.querySelectorAll('.tab')).find(
+                tab => tab.textContent.toLowerCase().includes(tabName.toLowerCase())
+            );
+            if (tabButton) {
+                tabButton.click();
+            }
+        }
+
+        function focusSearch() {
+            // Switch to search tab first
+            switchTabByName('search');
+            // Focus the search input
+            setTimeout(() => {
+                const searchInput = document.getElementById('searchInput');
+                if (searchInput) {
+                    searchInput.focus();
+                }
+            }, 100);
+        }
+
+        function refreshCurrentTab() {
+            const activeTab = document.querySelector('.tab-content.active');
+            if (activeTab) {
+                const tabName = activeTab.id;
+                switch(tabName) {
+                    case 'overview':
+                        loadOverview();
+                        showToast('info', 'Refreshed', 'Overview data refreshed');
+                        break;
+                    case 'timeline':
+                        loadTimeline();
+                        showToast('info', 'Refreshed', 'Timeline data refreshed');
+                        break;
+                    case 'entities':
+                        loadEntities();
+                        showToast('info', 'Refreshed', 'Entities data refreshed');
+                        break;
+                    case 'relationships':
+                        loadRelationships();
+                        showToast('info', 'Refreshed', 'Relationships data refreshed');
+                        break;
+                }
+            }
+        }
+
+        // ===========================================
         // Tab switching
+        // ===========================================
         function switchTab(tabName) {
             // Update tabs
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
@@ -489,6 +935,7 @@
                 }
             } catch (error) {
                 container.innerHTML = `<div class="error">Failed to load statistics: ${error.message}</div>`;
+                showToast('error', 'Error Loading Stats', error.message);
             }
         }
 
@@ -551,6 +998,7 @@
                 `;
             } catch (error) {
                 container.innerHTML = `<div class="error">Failed to load timeline: ${error.message}</div>`;
+                showToast('error', 'Error Loading Timeline', error.message);
             }
         }
 
@@ -601,6 +1049,7 @@
                 `;
             } catch (error) {
                 container.innerHTML = `<div class="error">Search failed: ${error.message}</div>`;
+                showToast('error', 'Search Failed', error.message);
             }
         }
 
@@ -701,6 +1150,7 @@
                 }
             } catch (error) {
                 container.innerHTML = `<div class="error">Failed to load entities: ${error.message}</div>`;
+                showToast('error', 'Error Loading Entities', error.message);
             }
         }
 
@@ -764,6 +1214,7 @@
                 container.innerHTML = html;
             } catch (error) {
                 container.innerHTML = `<div class="error">Failed to load relationships: ${error.message}</div>`;
+                showToast('error', 'Error Loading Relationships', error.message);
             }
         }
 
@@ -776,7 +1227,11 @@
 
         // Initialize dashboard
         document.addEventListener('DOMContentLoaded', () => {
+            initKeyboardShortcuts();
             loadOverview();
+
+            // Show welcome toast
+            showToast('success', 'Dashboard Ready', 'Press ? for keyboard shortcuts', 3000);
         });
     </script>
 </body>
