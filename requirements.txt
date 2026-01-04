@@ -25,6 +25,7 @@ anthropic>=0.18.0             # Claude API (for complex reasoning)
 openai>=1.0.0                 # OpenAI-compatible API client
 
 # === Core Infrastructure ===
+python-dotenv>=1.0.0          # Environment variable management
 asyncio-mqtt>=0.16.0          # Event messaging
 celery>=5.3.0                 # Task queue
 redis>=5.0.0                  # Optional: caching/state
