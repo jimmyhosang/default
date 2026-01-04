@@ -593,6 +593,183 @@ class SemanticStore:
             'entity_extraction_available': self.nlp is not None,
         }
 
+    def cleanup_old_data(
+        self,
+        max_age_days: int = 90,
+        max_records: int = 10000,
+        dry_run: bool = False
+    ) -> dict[str, Any]:
+        """
+        Clean up old data based on retention policy.
+
+        Args:
+            max_age_days: Delete records older than this many days
+            max_records: Keep at most this many records (oldest first)
+            dry_run: If True, only report what would be deleted
+
+        Returns:
+            Dictionary with cleanup statistics
+        """
+        from datetime import timedelta
+
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        stats = {
+            'deleted_by_age': 0,
+            'deleted_by_count': 0,
+            'deleted_entities': 0,
+            'dry_run': dry_run
+        }
+
+        # Calculate age threshold
+        threshold = (datetime.now() - timedelta(days=max_age_days)).isoformat()
+
+        # Count records to delete by age
+        cursor.execute("""
+            SELECT COUNT(*) FROM semantic_content
+            WHERE timestamp < ?
+        """, (threshold,))
+        age_count = cursor.fetchone()[0]
+        stats['deleted_by_age'] = age_count
+
+        if not dry_run and age_count > 0:
+            # Delete entities for old content first
+            cursor.execute("""
+                DELETE FROM entities
+                WHERE content_id IN (
+                    SELECT id FROM semantic_content WHERE timestamp < ?
+                )
+            """, (threshold,))
+            stats['deleted_entities'] += cursor.rowcount
+
+            # Delete old content
+            cursor.execute("DELETE FROM semantic_content WHERE timestamp < ?", (threshold,))
+
+        # Check if we still have too many records
+        cursor.execute("SELECT COUNT(*) FROM semantic_content")
+        current_count = cursor.fetchone()[0]
+
+        if current_count > max_records:
+            excess = current_count - max_records
+            stats['deleted_by_count'] = excess
+
+            if not dry_run:
+                # Get IDs of oldest records to delete
+                cursor.execute("""
+                    SELECT id FROM semantic_content
+                    ORDER BY timestamp ASC
+                    LIMIT ?
+                """, (excess,))
+                ids_to_delete = [row[0] for row in cursor.fetchall()]
+
+                if ids_to_delete:
+                    placeholders = ','.join('?' * len(ids_to_delete))
+
+                    # Delete entities for these records
+                    cursor.execute(f"""
+                        DELETE FROM entities
+                        WHERE content_id IN ({placeholders})
+                    """, ids_to_delete)
+                    stats['deleted_entities'] += cursor.rowcount
+
+                    # Delete the content
+                    cursor.execute(f"""
+                        DELETE FROM semantic_content
+                        WHERE id IN ({placeholders})
+                    """, ids_to_delete)
+
+        if not dry_run:
+            # Rebuild FTS index
+            try:
+                cursor.execute("INSERT INTO semantic_content_fts(semantic_content_fts) VALUES('rebuild')")
+            except sqlite3.OperationalError:
+                pass  # FTS rebuild not supported
+
+            conn.commit()
+
+            # Vacuum database to reclaim space
+            conn.execute("VACUUM")
+
+        conn.close()
+
+        # Also cleanup capture tables
+        self._cleanup_capture_tables(max_age_days, max_records, dry_run, stats)
+
+        return stats
+
+    def _cleanup_capture_tables(
+        self,
+        max_age_days: int,
+        max_records: int,
+        dry_run: bool,
+        stats: dict
+    ):
+        """Clean up the source capture tables (screen, clipboard, file)."""
+        from datetime import timedelta
+
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        threshold = (datetime.now() - timedelta(days=max_age_days)).isoformat()
+
+        tables = [
+            ('captures', 'captures_fts'),
+            ('clipboard_history', 'clipboard_fts'),
+            ('file_history', 'file_fts')
+        ]
+
+        for main_table, fts_table in tables:
+            try:
+                # Count old records
+                cursor.execute(f"SELECT COUNT(*) FROM {main_table} WHERE timestamp < ?", (threshold,))
+                old_count = cursor.fetchone()[0]
+
+                if not dry_run and old_count > 0:
+                    cursor.execute(f"DELETE FROM {main_table} WHERE timestamp < ?", (threshold,))
+
+                    # Try to update FTS
+                    try:
+                        cursor.execute(f"INSERT INTO {fts_table}({fts_table}) VALUES('rebuild')")
+                    except sqlite3.OperationalError:
+                        pass
+
+            except sqlite3.OperationalError:
+                pass  # Table doesn't exist
+
+        if not dry_run:
+            conn.commit()
+
+        conn.close()
+
+    def delete_content(self, content_id: int) -> bool:
+        """
+        Delete a specific content item and its entities.
+
+        Args:
+            content_id: The ID of the content to delete
+
+        Returns:
+            True if deleted, False if not found
+        """
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        # Check if exists
+        cursor.execute("SELECT 1 FROM semantic_content WHERE id = ?", (content_id,))
+        if not cursor.fetchone():
+            conn.close()
+            return False
+
+        # Delete entities first
+        cursor.execute("DELETE FROM entities WHERE content_id = ?", (content_id,))
+
+        # Delete content
+        cursor.execute("DELETE FROM semantic_content WHERE id = ?", (content_id,))
+
+        conn.commit()
+        conn.close()
+        return True
+
     def sync_from_captures(self):
         """
         Sync all existing capture data into semantic store.

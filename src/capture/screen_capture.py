@@ -12,10 +12,17 @@ what's on screen rather than requiring integrations with every app.
 import asyncio
 import hashlib
 import sqlite3
+import platform
+import subprocess
+import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 import json
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Note: Install these dependencies:
 # pip install mss pytesseract pillow
@@ -27,6 +34,165 @@ try:
 except ImportError:
     print("Install dependencies: pip install mss pytesseract pillow")
     raise
+
+
+def get_active_window_linux() -> Tuple[str, str]:
+    """Get active window info on Linux using xdotool."""
+    try:
+        # Get active window ID
+        window_id = subprocess.run(
+            ["xdotool", "getactivewindow"],
+            capture_output=True,
+            text=True,
+            timeout=2
+        ).stdout.strip()
+
+        if not window_id:
+            return ("Unknown Window", "Unknown App")
+
+        # Get window title
+        window_title = subprocess.run(
+            ["xdotool", "getwindowname", window_id],
+            capture_output=True,
+            text=True,
+            timeout=2
+        ).stdout.strip()
+
+        # Get window PID and then application name
+        window_pid = subprocess.run(
+            ["xdotool", "getwindowpid", window_id],
+            capture_output=True,
+            text=True,
+            timeout=2
+        ).stdout.strip()
+
+        app_name = "Unknown App"
+        if window_pid:
+            try:
+                # Get process name from /proc
+                comm_path = Path(f"/proc/{window_pid}/comm")
+                if comm_path.exists():
+                    app_name = comm_path.read_text().strip()
+            except Exception:
+                pass
+
+        return (window_title or "Unknown Window", app_name)
+    except FileNotFoundError:
+        logger.warning("xdotool not found. Install with: sudo apt install xdotool")
+        return ("Unknown Window", "Unknown App")
+    except Exception as e:
+        logger.debug(f"Linux active window detection failed: {e}")
+        return ("Unknown Window", "Unknown App")
+
+
+def get_active_window_macos() -> Tuple[str, str]:
+    """Get active window info on macOS using AppleScript."""
+    try:
+        # Get frontmost application name
+        app_script = '''
+            tell application "System Events"
+                set frontApp to name of first application process whose frontmost is true
+                return frontApp
+            end tell
+        '''
+        app_result = subprocess.run(
+            ["osascript", "-e", app_script],
+            capture_output=True,
+            text=True,
+            timeout=2
+        )
+        app_name = app_result.stdout.strip() or "Unknown App"
+
+        # Get window title (more complex, app-specific)
+        title_script = f'''
+            tell application "System Events"
+                tell process "{app_name}"
+                    try
+                        set windowTitle to name of front window
+                        return windowTitle
+                    on error
+                        return ""
+                    end try
+                end tell
+            end tell
+        '''
+        title_result = subprocess.run(
+            ["osascript", "-e", title_script],
+            capture_output=True,
+            text=True,
+            timeout=2
+        )
+        window_title = title_result.stdout.strip() or app_name
+
+        return (window_title, app_name)
+    except Exception as e:
+        logger.debug(f"macOS active window detection failed: {e}")
+        return ("Unknown Window", "Unknown App")
+
+
+def get_active_window_windows() -> Tuple[str, str]:
+    """Get active window info on Windows using ctypes."""
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        user32 = ctypes.windll.user32
+        kernel32 = ctypes.windll.kernel32
+
+        # Get foreground window handle
+        hwnd = user32.GetForegroundWindow()
+        if not hwnd:
+            return ("Unknown Window", "Unknown App")
+
+        # Get window title
+        length = user32.GetWindowTextLengthW(hwnd) + 1
+        buffer = ctypes.create_unicode_buffer(length)
+        user32.GetWindowTextW(hwnd, buffer, length)
+        window_title = buffer.value or "Unknown Window"
+
+        # Get process ID
+        pid = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+
+        # Get process name
+        app_name = "Unknown App"
+        PROCESS_QUERY_INFORMATION = 0x0400
+        PROCESS_VM_READ = 0x0010
+
+        handle = kernel32.OpenProcess(
+            PROCESS_QUERY_INFORMATION | PROCESS_VM_READ,
+            False,
+            pid.value
+        )
+        if handle:
+            try:
+                # Get executable path
+                exe_path = ctypes.create_unicode_buffer(260)
+                psapi = ctypes.windll.psapi
+                if psapi.GetModuleBaseNameW(handle, None, exe_path, 260):
+                    app_name = exe_path.value
+            finally:
+                kernel32.CloseHandle(handle)
+
+        return (window_title, app_name)
+    except Exception as e:
+        logger.debug(f"Windows active window detection failed: {e}")
+        return ("Unknown Window", "Unknown App")
+
+
+def get_active_window() -> Tuple[str, str]:
+    """Get active window title and application name (cross-platform)."""
+    system = platform.system()
+
+    if system == "Linux":
+        return get_active_window_linux()
+    elif system == "Darwin":  # macOS
+        return get_active_window_macos()
+    elif system == "Windows":
+        return get_active_window_windows()
+    else:
+        logger.warning(f"Unsupported platform for active window detection: {system}")
+        return ("Unknown Window", "Unknown App")
 
 
 class ScreenCapture:
@@ -110,17 +276,9 @@ class ScreenCapture:
             print(f"OCR failed: {e}")
             return ""
     
-    def _get_active_window(self) -> tuple[str, str]:
+    def _get_active_window(self) -> Tuple[str, str]:
         """Get active window title and application name."""
-        # Platform-specific implementation needed
-        # This is a placeholder - implement for your OS
-        try:
-            # macOS example using pyobjc
-            # Linux example using xdotool
-            # Windows example using pywin32
-            return ("Unknown Window", "Unknown App")
-        except Exception:
-            return ("Unknown Window", "Unknown App")
+        return get_active_window()
     
     def capture_once(self) -> Optional[dict]:
         """Capture a single screenshot and process it."""

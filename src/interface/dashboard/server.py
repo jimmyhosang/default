@@ -23,8 +23,50 @@ import json
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, validator
 from fastapi.middleware.cors import CORSMiddleware
+import re
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+
+# === Pydantic Models for Request Validation ===
+class ActionRequest(BaseModel):
+    """Request model for action execution."""
+    action: str = Field(..., min_length=1, max_length=100)
+    params: dict = Field(default_factory=dict)
+
+    @validator('action')
+    def validate_action(cls, v):
+        # Only allow alphanumeric and underscores
+        if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', v):
+            raise ValueError('Action must be alphanumeric with underscores only')
+        return v
+
+
+class BrowserHistoryRequest(BaseModel):
+    """Request model for browser history."""
+    url: str = Field(..., max_length=2048)
+    title: str = Field(default="", max_length=500)
+    content: str = Field(default="", max_length=50000)
+    timestamp: Optional[str] = None
+
+    @validator('url')
+    def validate_url(cls, v):
+        if not v.startswith(('http://', 'https://')):
+            raise ValueError('URL must start with http:// or https://')
+        return v
+
+
+class SettingsUpdate(BaseModel):
+    """Request model for settings update."""
+    capture: Optional[dict] = None
+    storage: Optional[dict] = None
+    llm: Optional[dict] = None
+    ui: Optional[dict] = None
 
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
@@ -38,12 +80,17 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Enable CORS for local development
+# Enable CORS for local development only (security: restrict to localhost)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+        "http://localhost:5173",  # Vite dev server
+        "http://127.0.0.1:5173",
+    ],
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
     allow_headers=["*"],
 )
 
@@ -57,60 +104,33 @@ if DIST_DIR.exists():
     app.mount("/assets", StaticFiles(directory=str(DIST_DIR / "assets")), name="assets")
 
 
-@app.get("/api/search")
-async def search(
-    q: str = Query(..., description="Search query"),
-    mode: str = Query("hybrid", description="Search mode: hybrid, semantic, exact"),
-    limit: int = Query(20, ge=1, le=100)
-):
-    """
-    Search across captured content.
-    Mode 'semantic' or 'hybrid' uses the RAG engine for intelligence.
-    """
-    if mode == "exact":
-        # Simple DB search
-        results = store.search(q, limit=limit)
-        return {"results": results, "answer": None}
-    
-    # RAG Search (Ask my Data)
-    # Note: For a pure list of results without LLM answer, we could just call store.semantic_search
-    # But 'search' usually implies finding documents. 
-    # Let's support an 'ask' flag or infer intent? 
-    # For now, let's treat the main search bar as an "Ask" bar if it looks like a question,
-    # or just return results if it looks like a keyword.
-    
-    # Simple heuristic: if query length > 20 or contains space, assume it might be a question?
-    # Actually, let's just return the LLM answer if it's 'semantic' mode.
-    
-    rag_result = await rag_engine.query(q, limit=5)
-    
-    # Mix relevant documents (context) into the results list
-    return {
-        "answer": rag_result["answer"],
-        "results": rag_result["context"]
-    }
-
-if DIST_DIR.exists():
-    app.mount("/assets", StaticFiles(directory=str(DIST_DIR / "assets")), name="assets")
+# Note: /api/search endpoint defined below after /api/timeline
 
 
 @app.get("/api/timeline")
 async def get_timeline(
     days: int = Query(7, ge=1, le=90, description="Number of days to retrieve"),
     source_type: Optional[str] = Query(None, description="Filter by source type"),
-    limit: int = Query(100, ge=1, le=1000, description="Maximum number of items")
-) -> List[Dict[str, Any]]:
+    limit: int = Query(50, ge=1, le=200, description="Maximum number of items per page"),
+    page: int = Query(1, ge=1, description="Page number (1-indexed)"),
+    offset: int = Query(0, ge=0, description="Offset for pagination (alternative to page)")
+) -> Dict[str, Any]:
     """
     Get activity timeline showing captured data over time.
 
     Args:
         days: Number of days to look back
         source_type: Optional filter by source type (screen, clipboard, file)
-        limit: Maximum number of results
+        limit: Maximum number of results per page
+        page: Page number (1-indexed)
+        offset: Alternative offset-based pagination
 
     Returns:
-        List of timeline items with content, timestamp, and metadata
+        Paginated timeline with items, total count, and pagination metadata
     """
+    # Calculate offset from page if page > 1 and offset not explicitly set
+    if page > 1 and offset == 0:
+        offset = (page - 1) * limit
     import sqlite3
 
     conn = sqlite3.connect(store.db_path)
@@ -184,11 +204,30 @@ async def get_timeline(
     # Sort all results by timestamp
     results.sort(key=lambda x: x['timestamp'], reverse=True)
 
-    # Apply limit to combined results
-    results = results[:limit]
+    # Get total count before pagination
+    total_count = len(results)
+
+    # Apply pagination
+    paginated_results = results[offset:offset + limit]
 
     conn.close()
-    return results
+
+    # Calculate pagination metadata
+    total_pages = (total_count + limit - 1) // limit if limit > 0 else 1
+    current_page = (offset // limit) + 1 if limit > 0 else 1
+
+    return {
+        "items": paginated_results,
+        "pagination": {
+            "total": total_count,
+            "limit": limit,
+            "offset": offset,
+            "page": current_page,
+            "total_pages": total_pages,
+            "has_next": offset + limit < total_count,
+            "has_prev": offset > 0
+        }
+    }
 
 
 @app.get("/api/search")
@@ -623,57 +662,72 @@ async def get_capture_status() -> Dict[str, Any]:
     return status
 
 
+# Whitelist of allowed daemon names (security: prevent arbitrary module execution)
+ALLOWED_DAEMONS = frozenset(['screen', 'clipboard', 'file'])
+DAEMON_MODULE_MAP = {
+    'screen': 'src.capture.screen_capture',
+    'clipboard': 'src.capture.clipboard_monitor',
+    'file': 'src.capture.file_watcher'
+}
+
+
 @app.post("/api/capture/start/{daemon_name}")
 async def start_capture_daemon(daemon_name: str) -> Dict[str, Any]:
     """Start a specific capture daemon."""
-    if daemon_name not in ['screen', 'clipboard', 'file']:
+    # Security: validate against whitelist
+    if daemon_name not in ALLOWED_DAEMONS:
+        logger.warning(f"Attempted to start unknown daemon: {daemon_name}")
         raise HTTPException(status_code=400, detail=f"Unknown daemon: {daemon_name}")
-    
+
     # Check if already running
     proc = capture_processes.get(daemon_name)
     if proc and proc.poll() is None:
         return {"status": "already_running", "pid": proc.pid}
-    
-    # Map daemon names to modules
-    module_map = {
-        'screen': 'src.capture.screen_capture',
-        'clipboard': 'src.capture.clipboard_monitor', 
-        'file': 'src.capture.file_watcher'
-    }
-    
-    # Start the daemon
-    import sys
-    venv_python = Path(__file__).parent.parent.parent.parent / "venv" / "bin" / "python"
+
+    # Get Python executable (prefer venv if exists)
+    project_root = Path(__file__).parent.parent.parent.parent
+    venv_python = project_root / "venv" / "bin" / "python"
     python_exe = str(venv_python) if venv_python.exists() else sys.executable
-    
-    proc = subprocess.Popen(
-        [python_exe, "-m", module_map[daemon_name]],
-        cwd=str(Path(__file__).parent.parent.parent.parent),
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL
-    )
-    capture_processes[daemon_name] = proc
-    
-    return {"status": "started", "pid": proc.pid}
+
+    # Security: only use whitelisted module from DAEMON_MODULE_MAP
+    module_name = DAEMON_MODULE_MAP[daemon_name]
+
+    try:
+        proc = subprocess.Popen(
+            [python_exe, "-m", module_name],
+            cwd=str(project_root),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+        capture_processes[daemon_name] = proc
+        logger.info(f"Started {daemon_name} daemon with PID {proc.pid}")
+        return {"status": "started", "pid": proc.pid}
+    except Exception as e:
+        logger.error(f"Failed to start {daemon_name} daemon: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to start daemon: {str(e)}")
 
 
 @app.post("/api/capture/stop/{daemon_name}")
 async def stop_capture_daemon(daemon_name: str) -> Dict[str, Any]:
     """Stop a specific capture daemon."""
-    if daemon_name not in ['screen', 'clipboard', 'file']:
+    # Security: validate against whitelist
+    if daemon_name not in ALLOWED_DAEMONS:
+        logger.warning(f"Attempted to stop unknown daemon: {daemon_name}")
         raise HTTPException(status_code=400, detail=f"Unknown daemon: {daemon_name}")
-    
+
     proc = capture_processes.get(daemon_name)
     if not proc or proc.poll() is not None:
         return {"status": "not_running"}
-    
+
     # Send SIGTERM to gracefully stop
-    proc.terminate()
     try:
+        proc.terminate()
         proc.wait(timeout=5)
+        logger.info(f"Stopped {daemon_name} daemon gracefully")
     except subprocess.TimeoutExpired:
         proc.kill()
-    
+        logger.warning(f"Force killed {daemon_name} daemon after timeout")
+
     capture_processes[daemon_name] = None
     return {"status": "stopped"}
 
@@ -945,22 +999,25 @@ async def reset_settings() -> Dict[str, Any]:
 
 # === Browser Extension API ===
 @app.post("/api/browser/add")
-async def add_browser_history(data: Dict[str, Any]) -> Dict[str, Any]:
+async def add_browser_history(request: BrowserHistoryRequest) -> Dict[str, Any]:
     """
     Add browser history from extension.
-    Expected: { url, title, content?, timestamp? }
+    Request is validated via Pydantic model.
     """
-    url = data.get("url", "")
-    title = data.get("title", "")
-    content = data.get("content", f"{title}\n{url}")
-    
+    content = request.content or f"{request.title}\n{request.url}"
+
     # Store in semantic store
     content_id = store.add(
         content=content,
-        source_type="manual",  # Will be "browser" once we add support
-        metadata={"url": url, "title": title, "source": "browser_extension"}
+        source_type="browser",
+        metadata={
+            "url": request.url,
+            "title": request.title,
+            "source": "browser_extension"
+        }
     )
-    
+
+    logger.info(f"Added browser history: {request.url[:50]}...")
     return {"status": "success", "content_id": content_id}
 
 
@@ -994,46 +1051,270 @@ async def get_browser_history(
     return {"items": items, "count": len(items)}
 
 
+# === RAG (Ask my Data) API ===
+@app.get("/api/ask")
+async def ask_data(
+    q: str = Query(..., min_length=1, max_length=1000, description="Question to ask"),
+    limit: int = Query(5, ge=1, le=20, description="Number of context documents")
+) -> Dict[str, Any]:
+    """
+    Ask a question using RAG (Retrieval-Augmented Generation).
+    This searches the semantic store and uses LLM to generate an answer.
+    """
+    try:
+        logger.info(f"RAG query: {q[:50]}...")
+        result = await rag_engine.query(q, limit=limit)
+        return {
+            "question": q,
+            "answer": result["answer"],
+            "context": result["context"],
+            "model": result.get("model", "unknown")
+        }
+    except Exception as e:
+        logger.error(f"RAG query failed: {e}")
+        return {
+            "question": q,
+            "answer": f"Error processing query: {str(e)}",
+            "context": [],
+            "model": "error"
+        }
+
+
 # === Action Execution API ===
+# Allowed actions whitelist for security
+ALLOWED_ACTIONS = {"open_file", "search", "summarize_today", "list_files"}
+
+# Allowed directories for file operations (security)
+ALLOWED_DIRS = [
+    Path.home() / "Documents",
+    Path.home() / "Desktop",
+    Path.home() / "Downloads",
+]
+
+
+def is_path_safe(path_str: str) -> bool:
+    """Check if path is within allowed directories (prevent traversal attacks)."""
+    try:
+        path = Path(path_str).resolve()
+        return any(
+            path == allowed or allowed in path.parents
+            for allowed in ALLOWED_DIRS
+        )
+    except Exception:
+        return False
+
+
 @app.post("/api/actions/execute")
-async def execute_action(data: Dict[str, Any]) -> Dict[str, Any]:
+async def execute_action(request: ActionRequest) -> Dict[str, Any]:
     """
     Execute an action via the System of Action.
-    Expected: { action: string, params?: object }
+    Actions are validated and sandboxed for security.
     """
-    action = data.get("action", "")
-    params = data.get("params", {})
-    
-    if not action:
-        raise HTTPException(status_code=400, detail="Action is required")
-    
-    # Map common actions to handlers
+    action = request.action
+    params = request.params
+
+    # Validate action is allowed
+    if action not in ALLOWED_ACTIONS:
+        logger.warning(f"Blocked unauthorized action: {action}")
+        raise HTTPException(status_code=403, detail=f"Action not allowed: {action}")
+
+    logger.info(f"Executing action: {action}")
     results = []
-    
+
     if action == "open_file":
         path = params.get("path", "")
-        if path:
-            import subprocess
-            subprocess.run(["open", path])
-            results.append(f"Opened: {path}")
-    
+        if not path:
+            raise HTTPException(status_code=400, detail="Path is required")
+
+        # Security: validate path is in allowed directories
+        if not is_path_safe(path):
+            logger.warning(f"Blocked path traversal attempt: {path}")
+            raise HTTPException(status_code=403, detail="Path not in allowed directories")
+
+        # Use platform-appropriate open command (no shell=True)
+        import platform
+        import subprocess
+        resolved_path = str(Path(path).resolve())
+
+        if platform.system() == "Darwin":
+            subprocess.run(["open", resolved_path], check=True)
+        elif platform.system() == "Linux":
+            subprocess.run(["xdg-open", resolved_path], check=True)
+        else:  # Windows
+            subprocess.run(["start", "", resolved_path], shell=True, check=True)
+
+        results.append(f"Opened: {resolved_path}")
+
     elif action == "search":
         query = params.get("query", "")
-        if query:
-            search_results = store.search(query, limit=5)
-            results = [{"content": r["content"][:200]} for r in search_results]
-    
+        if not query or len(query) > 500:
+            raise HTTPException(status_code=400, detail="Valid query is required (max 500 chars)")
+        search_results = store.search(query, limit=5)
+        results = [{"content": r["content"][:200]} for r in search_results]
+
     elif action == "summarize_today":
-        # Get today's captures and summarize
-        from datetime import datetime
         today = datetime.now().strftime("%Y-%m-%d")
         search_results = store.search(f'"{today}"', limit=20)
         results.append(f"Found {len(search_results)} items from today")
-    
-    else:
-        results.append(f"Unknown action: {action}")
-    
+
+    elif action == "list_files":
+        directory = params.get("directory", "")
+        if not directory or not is_path_safe(directory):
+            raise HTTPException(status_code=403, detail="Directory not allowed")
+
+        dir_path = Path(directory).resolve()
+        if dir_path.is_dir():
+            files = [f.name for f in dir_path.iterdir() if not f.name.startswith('.')][:50]
+            results = files
+
     return {"status": "success", "action": action, "results": results}
+
+
+# === Data Management API ===
+class CleanupRequest(BaseModel):
+    """Request model for data cleanup."""
+    max_age_days: int = Field(default=90, ge=1, le=365)
+    max_records: int = Field(default=10000, ge=100, le=100000)
+    dry_run: bool = Field(default=True)
+
+
+@app.post("/api/data/cleanup")
+async def cleanup_data(request: CleanupRequest) -> Dict[str, Any]:
+    """
+    Clean up old data based on retention policy.
+    Set dry_run=False to actually delete data.
+    """
+    logger.info(f"Data cleanup requested: max_age={request.max_age_days}d, max_records={request.max_records}, dry_run={request.dry_run}")
+
+    try:
+        stats = store.cleanup_old_data(
+            max_age_days=request.max_age_days,
+            max_records=request.max_records,
+            dry_run=request.dry_run
+        )
+        return {
+            "status": "success",
+            "message": "Dry run complete" if request.dry_run else "Cleanup complete",
+            **stats
+        }
+    except Exception as e:
+        logger.error(f"Cleanup failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/data/content/{content_id}")
+async def delete_content(content_id: int) -> Dict[str, Any]:
+    """Delete a specific content item."""
+    if store.delete_content(content_id):
+        logger.info(f"Deleted content {content_id}")
+        return {"status": "success", "message": f"Content {content_id} deleted"}
+    raise HTTPException(status_code=404, detail="Content not found")
+
+
+# === Export API ===
+@app.get("/api/export/json")
+async def export_json(
+    days: int = Query(30, ge=1, le=365),
+    source_type: Optional[str] = Query(None)
+) -> Dict[str, Any]:
+    """Export data as JSON."""
+    import sqlite3
+    from datetime import timedelta
+
+    threshold = (datetime.now() - timedelta(days=days)).isoformat()
+
+    conn = sqlite3.connect(store.db_path)
+    cursor = conn.cursor()
+
+    # Build query
+    if source_type:
+        cursor.execute("""
+            SELECT id, content, source_type, timestamp, metadata
+            FROM semantic_content
+            WHERE timestamp >= ? AND source_type = ?
+            ORDER BY timestamp DESC
+        """, (threshold, source_type))
+    else:
+        cursor.execute("""
+            SELECT id, content, source_type, timestamp, metadata
+            FROM semantic_content
+            WHERE timestamp >= ?
+            ORDER BY timestamp DESC
+        """, (threshold,))
+
+    data = []
+    for row in cursor.fetchall():
+        data.append({
+            "id": row[0],
+            "content": row[1],
+            "source_type": row[2],
+            "timestamp": row[3],
+            "metadata": json.loads(row[4]) if row[4] else {}
+        })
+
+    conn.close()
+
+    return {
+        "export_date": datetime.now().isoformat(),
+        "days_included": days,
+        "source_type": source_type,
+        "count": len(data),
+        "data": data
+    }
+
+
+@app.get("/api/export/csv")
+async def export_csv(
+    days: int = Query(30, ge=1, le=365),
+    source_type: Optional[str] = Query(None)
+):
+    """Export data as CSV file."""
+    import csv
+    import io
+    from fastapi.responses import StreamingResponse
+    from datetime import timedelta
+
+    threshold = (datetime.now() - timedelta(days=days)).isoformat()
+
+    conn = sqlite3.connect(store.db_path)
+    cursor = conn.cursor()
+
+    # Build query
+    if source_type:
+        cursor.execute("""
+            SELECT id, content, source_type, timestamp
+            FROM semantic_content
+            WHERE timestamp >= ? AND source_type = ?
+            ORDER BY timestamp DESC
+        """, (threshold, source_type))
+    else:
+        cursor.execute("""
+            SELECT id, content, source_type, timestamp
+            FROM semantic_content
+            WHERE timestamp >= ?
+            ORDER BY timestamp DESC
+        """, (threshold,))
+
+    # Create CSV in memory
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["id", "content", "source_type", "timestamp"])
+
+    for row in cursor.fetchall():
+        # Truncate content for CSV
+        content = row[1][:1000] if row[1] else ""
+        writer.writerow([row[0], content, row[2], row[3]])
+
+    conn.close()
+
+    output.seek(0)
+    filename = f"unified-ai-export-{datetime.now().strftime('%Y%m%d')}.csv"
+
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
 
 
 # === Catch-all route for SPA (must be last) ===
