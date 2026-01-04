@@ -698,6 +698,92 @@ async def stop_all_daemons() -> Dict[str, Any]:
     return results
 
 
+@app.post("/api/entities/sync")
+async def sync_entities() -> Dict[str, Any]:
+    """
+    Sync all existing captures and extract entities.
+    This processes screen captures, clipboard items, and files.
+    """
+    try:
+        # Sync captures to semantic store (with entity extraction)
+        store.sync_from_captures()
+        
+        # Get updated stats
+        stats = store.get_stats()
+        
+        return {
+            "status": "success",
+            "message": "Entity extraction complete",
+            "total_content": stats.get("total_content", 0),
+            "total_entities": stats.get("total_entities", 0),
+            "by_entity_type": stats.get("by_entity_type", {})
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": str(e)
+        }
+
+
+@app.post("/api/entities/reprocess")
+async def reprocess_entities() -> Dict[str, Any]:
+    """
+    Re-extract entities from all content in semantic store.
+    This is useful if entity extraction was skipped or failed previously.
+    """
+    import sqlite3
+    
+    try:
+        conn = sqlite3.connect(store.db_path)
+        cursor = conn.cursor()
+        
+        # Clear existing entities
+        cursor.execute("DELETE FROM entities")
+        conn.commit()
+        
+        # Get all content
+        cursor.execute("""
+            SELECT id, content FROM semantic_content
+            WHERE content IS NOT NULL AND content != ''
+        """)
+        rows = cursor.fetchall()
+        
+        total_entities = 0
+        for content_id, content in rows:
+            entities = store._extract_entities(content)
+            for ent in entities:
+                cursor.execute("""
+                    INSERT INTO entities
+                    (content_id, entity_text, entity_type, start_char, end_char, metadata)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (
+                    content_id,
+                    ent['text'],
+                    ent['type'],
+                    ent['start'],
+                    ent['end'],
+                    json.dumps({'spacy_label': ent['label']})
+                ))
+                total_entities += 1
+        
+        conn.commit()
+        conn.close()
+        
+        # Get updated stats
+        stats = store.get_stats()
+        
+        return {
+            "status": "success",
+            "message": f"Re-extracted {total_entities} entities from {len(rows)} content items",
+            "total_entities": stats.get("total_entities", 0),
+            "by_entity_type": stats.get("by_entity_type", {})
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": str(e)
+        }
+
 # === Catch-all route for SPA (must be last) ===
 @app.get("/{full_path:path}")
 async def serve_react_app(full_path: str):

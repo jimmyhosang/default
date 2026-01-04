@@ -477,7 +477,9 @@ const SearchTab = () => {
 const EntitiesTab = () => {
   const [entities, setEntities] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
   const [typeFilter, setTypeFilter] = useState<string>('all');
+  const [syncMessage, setSyncMessage] = useState<string>('');
 
   const fetchEntities = async () => {
     setLoading(true);
@@ -490,6 +492,27 @@ const EntitiesTab = () => {
       console.error(err);
     }
     setLoading(false);
+  };
+
+  const syncEntities = async () => {
+    setSyncing(true);
+    setSyncMessage('Syncing captures...');
+    try {
+      // First sync captures to semantic store
+      await axios.post(`${API_BASE}/api/entities/sync`);
+      setSyncMessage('Extracting entities...');
+
+      // Then reprocess all entities
+      const res = await axios.post(`${API_BASE}/api/entities/reprocess`);
+      setSyncMessage(res.data.message || 'Complete!');
+
+      // Refresh entities list
+      await fetchEntities();
+    } catch (err) {
+      console.error(err);
+      setSyncMessage('Sync failed');
+    }
+    setSyncing(false);
   };
 
   useEffect(() => { fetchEntities(); }, [typeFilter]);
@@ -550,9 +573,23 @@ const EntitiesTab = () => {
           <div className="text-2xl font-bold animate-pulse">LOADING...</div>
         </div>
       ) : entities.length === 0 ? (
-        <div className="neo-card p-12 text-center">
+        <div className="neo-card p-12 text-center space-y-4">
           <div className="text-xl font-bold">NO ENTITIES FOUND</div>
-          <p className="mt-2">Entities will be extracted from captured content.</p>
+          <p className="text-gray-600">Entities like people, organizations, dates, and money will be extracted from your captured content.</p>
+          <button
+            onClick={syncEntities}
+            disabled={syncing}
+            className="neo-button neo-green px-6 py-3 text-lg disabled:opacity-50"
+          >
+            {syncing ? (
+              <span className="flex items-center gap-2">
+                <RefreshCw size={18} className="animate-spin" />
+                {syncMessage}
+              </span>
+            ) : (
+              '🔄 SYNC & EXTRACT ENTITIES'
+            )}
+          </button>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
