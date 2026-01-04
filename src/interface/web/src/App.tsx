@@ -21,7 +21,8 @@ import {
 import axios from 'axios';
 import { motion, AnimatePresence } from 'framer-motion';
 
-const API_BASE = 'http://localhost:8000';
+// Use relative URLs so API works regardless of localhost vs 127.0.0.1
+const API_BASE = '';
 
 function App() {
   const [activeTab, setActiveTab] = useState('overview');
