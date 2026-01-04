@@ -9,7 +9,14 @@ import {
   Clipboard,
   Zap,
   CheckCircle,
-  XCircle
+  XCircle,
+  FileText,
+  User,
+  Building,
+  Calendar,
+  DollarSign,
+  Filter,
+  RefreshCw
 } from 'lucide-react';
 import axios from 'axios';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -198,13 +205,114 @@ const StatusRow = ({ label, status }: { label: string; status: boolean }) => (
   </div>
 );
 
-// --- Other Tabs (Placeholders) ---
-const TimelineTab = () => (
-  <div className="neo-card p-8">
-    <h2 className="text-3xl font-black uppercase mb-4">Activity Timeline</h2>
-    <p className="font-medium">Your captured activity will appear here.</p>
-  </div>
-);
+// --- Timeline Tab ---
+const TimelineTab = () => {
+  const [items, setItems] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState<string>('all');
+  const [days, setDays] = useState(7);
+
+  const fetchTimeline = async () => {
+    setLoading(true);
+    try {
+      const params: any = { days, limit: 100 };
+      if (filter !== 'all') params.source_type = filter;
+      const res = await axios.get(`${API_BASE}/api/timeline`, { params });
+      setItems(res.data);
+    } catch (err) {
+      console.error(err);
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => { fetchTimeline(); }, [filter, days]);
+
+  const getSourceIcon = (type: string) => {
+    switch (type) {
+      case 'screen': return <Monitor size={16} />;
+      case 'clipboard': return <Clipboard size={16} />;
+      case 'file': return <FileText size={16} />;
+      default: return <Database size={16} />;
+    }
+  };
+
+  const getSourceColor = (type: string) => {
+    switch (type) {
+      case 'screen': return 'neo-blue';
+      case 'clipboard': return 'neo-green';
+      case 'file': return 'neo-purple';
+      default: return 'bg-gray-200';
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Filters */}
+      <div className="neo-card p-4 flex flex-wrap items-center gap-4">
+        <div className="flex items-center gap-2">
+          <Filter size={18} />
+          <span className="font-bold uppercase text-sm">Source:</span>
+        </div>
+        {['all', 'screen', 'clipboard', 'file'].map((src) => (
+          <button
+            key={src}
+            onClick={() => setFilter(src)}
+            className={`neo-button px-3 py-1 text-sm ${filter === src ? 'neo-yellow' : 'bg-white'}`}
+          >
+            {src.toUpperCase()}
+          </button>
+        ))}
+        <div className="flex items-center gap-2 ml-auto">
+          <span className="font-bold uppercase text-sm">Days:</span>
+          <select
+            value={days}
+            onChange={(e) => setDays(Number(e.target.value))}
+            className="neo-input px-2 py-1"
+          >
+            <option value={1}>1</option>
+            <option value={7}>7</option>
+            <option value={30}>30</option>
+            <option value={90}>90</option>
+          </select>
+        </div>
+        <button onClick={fetchTimeline} className="neo-button p-2">
+          <RefreshCw size={16} />
+        </button>
+      </div>
+
+      {/* Timeline Items */}
+      {loading ? (
+        <div className="neo-card p-12 text-center">
+          <div className="text-2xl font-bold animate-pulse">LOADING...</div>
+        </div>
+      ) : items.length === 0 ? (
+        <div className="neo-card p-12 text-center">
+          <div className="text-xl font-bold">NO ACTIVITY FOUND</div>
+          <p className="mt-2">Run capture daemons to record your activity.</p>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {items.map((item, i) => (
+            <div key={i} className={`neo-card p-4 border-l-4 ${getSourceColor(item.source_type)}`}>
+              <div className="flex justify-between items-start mb-2">
+                <div className={`flex items-center gap-2 px-2 py-1 ${getSourceColor(item.source_type)} border-2 border-black`}>
+                  {getSourceIcon(item.source_type)}
+                  <span className="font-bold uppercase text-xs">{item.source_type}</span>
+                </div>
+                <span className="text-xs font-bold text-gray-500">
+                  {new Date(item.timestamp).toLocaleString()}
+                </span>
+              </div>
+              <div className="font-mono text-sm whitespace-pre-wrap break-words">
+                {item.content_preview || item.content?.substring(0, 300)}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
 
 const SearchTab = () => {
   const [query, setQuery] = useState('');
@@ -287,12 +395,114 @@ const SearchTab = () => {
   );
 };
 
-const EntitiesTab = () => (
-  <div className="neo-card neo-green p-8">
-    <h2 className="text-3xl font-black uppercase mb-4">Knowledge Base</h2>
-    <p className="font-medium">Extracted entities and concepts.</p>
-  </div>
-);
+// --- Entities Tab ---
+const EntitiesTab = () => {
+  const [entities, setEntities] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [typeFilter, setTypeFilter] = useState<string>('all');
+
+  const fetchEntities = async () => {
+    setLoading(true);
+    try {
+      const params: any = { limit: 100 };
+      if (typeFilter !== 'all') params.entity_type = typeFilter;
+      const res = await axios.get(`${API_BASE}/api/entities`, { params });
+      setEntities(res.data.entities || []);
+    } catch (err) {
+      console.error(err);
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => { fetchEntities(); }, [typeFilter]);
+
+  const getEntityIcon = (type: string) => {
+    switch (type) {
+      case 'person': return <User size={16} />;
+      case 'org': return <Building size={16} />;
+      case 'date': return <Calendar size={16} />;
+      case 'money': return <DollarSign size={16} />;
+      default: return <Database size={16} />;
+    }
+  };
+
+  const getEntityColor = (type: string) => {
+    switch (type) {
+      case 'person': return 'neo-pink';
+      case 'org': return 'neo-blue';
+      case 'date': return 'neo-yellow';
+      case 'money': return 'neo-green';
+      default: return 'neo-purple';
+    }
+  };
+
+  // Group entities by type
+  const groupedEntities = entities.reduce((acc: any, entity) => {
+    const type = entity.type || entity.entity_type || 'other';
+    if (!acc[type]) acc[type] = [];
+    acc[type].push(entity);
+    return acc;
+  }, {});
+
+  return (
+    <div className="space-y-6">
+      {/* Filters */}
+      <div className="neo-card p-4 flex flex-wrap items-center gap-4">
+        <div className="flex items-center gap-2">
+          <Filter size={18} />
+          <span className="font-bold uppercase text-sm">Entity Type:</span>
+        </div>
+        {['all', 'person', 'org', 'date', 'money', 'other'].map((type) => (
+          <button
+            key={type}
+            onClick={() => setTypeFilter(type)}
+            className={`neo-button px-3 py-1 text-sm ${typeFilter === type ? 'neo-yellow' : 'bg-white'}`}
+          >
+            {type.toUpperCase()}
+          </button>
+        ))}
+        <button onClick={fetchEntities} className="neo-button p-2 ml-auto">
+          <RefreshCw size={16} />
+        </button>
+      </div>
+
+      {/* Entity Cards */}
+      {loading ? (
+        <div className="neo-card p-12 text-center">
+          <div className="text-2xl font-bold animate-pulse">LOADING...</div>
+        </div>
+      ) : entities.length === 0 ? (
+        <div className="neo-card p-12 text-center">
+          <div className="text-xl font-bold">NO ENTITIES FOUND</div>
+          <p className="mt-2">Entities will be extracted from captured content.</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {Object.keys(groupedEntities).map((type) => (
+            <div key={type} className={`neo-card ${getEntityColor(type)} p-4`}>
+              <div className="flex items-center gap-2 mb-4">
+                {getEntityIcon(type)}
+                <h3 className="font-black uppercase">{type} ({groupedEntities[type].length})</h3>
+              </div>
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {groupedEntities[type].slice(0, 10).map((entity: any, i: number) => (
+                  <div key={i} className="bg-white border-2 border-black p-2 text-sm font-mono">
+                    {entity.text || entity.entity_text}
+                  </div>
+                ))}
+                {groupedEntities[type].length > 10 && (
+                  <div className="text-sm font-bold text-center">
+                    +{groupedEntities[type].length - 10} more
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
 
 const GraphTab = () => (
   <div className="neo-card neo-orange p-8">
