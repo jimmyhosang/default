@@ -784,6 +784,85 @@ async def reprocess_entities() -> Dict[str, Any]:
             "message": str(e)
         }
 
+
+@app.get("/api/graph")
+async def get_graph_data(
+    limit: int = Query(100, ge=10, le=500, description="Max entities to include")
+) -> Dict[str, Any]:
+    """
+    Get graph data for entity relationship visualization.
+    Returns nodes (entities) and links (co-occurrences in same content).
+    """
+    import sqlite3
+    
+    conn = sqlite3.connect(store.db_path)
+    cursor = conn.cursor()
+    
+    # Get top entities by frequency
+    cursor.execute("""
+        SELECT entity_text, entity_type, COUNT(*) as freq
+        FROM entities
+        GROUP BY entity_text, entity_type
+        ORDER BY freq DESC
+        LIMIT ?
+    """, (limit,))
+    
+    entities = cursor.fetchall()
+    
+    # Create nodes
+    nodes = []
+    entity_to_id = {}
+    for i, (text, etype, freq) in enumerate(entities):
+        node_id = f"e{i}"
+        entity_to_id[(text, etype)] = node_id
+        nodes.append({
+            "id": node_id,
+            "label": text,
+            "type": etype,
+            "size": min(5 + freq * 2, 30),  # Size based on frequency
+            "freq": freq
+        })
+    
+    # Find co-occurrences (entities that appear in same content)
+    links = []
+    link_set = set()
+    
+    # Get content_ids for each entity
+    entity_contents = {}
+    for (text, etype), node_id in entity_to_id.items():
+        cursor.execute("""
+            SELECT DISTINCT content_id FROM entities
+            WHERE entity_text = ? AND entity_type = ?
+        """, (text, etype))
+        entity_contents[node_id] = set(row[0] for row in cursor.fetchall())
+    
+    # Create links based on shared content
+    node_ids = list(entity_to_id.values())
+    for i, src_id in enumerate(node_ids):
+        for tgt_id in node_ids[i+1:]:
+            shared = entity_contents[src_id] & entity_contents[tgt_id]
+            if shared:
+                link_key = tuple(sorted([src_id, tgt_id]))
+                if link_key not in link_set:
+                    link_set.add(link_key)
+                    links.append({
+                        "source": src_id,
+                        "target": tgt_id,
+                        "value": len(shared)  # Strength = number of shared documents
+                    })
+    
+    conn.close()
+    
+    return {
+        "nodes": nodes,
+        "links": links,
+        "stats": {
+            "total_nodes": len(nodes),
+            "total_links": len(links)
+        }
+    }
+
+
 # === Catch-all route for SPA (must be last) ===
 @app.get("/{full_path:path}")
 async def serve_react_app(full_path: str):

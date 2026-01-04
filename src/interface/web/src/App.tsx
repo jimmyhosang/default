@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Activity,
   Search,
@@ -619,11 +619,264 @@ const EntitiesTab = () => {
   );
 };
 
-const GraphTab = () => (
-  <div className="neo-card neo-orange p-8">
-    <h2 className="text-3xl font-black uppercase mb-4">Relationship Graph</h2>
-    <p className="font-medium">Visual connections between your data.</p>
-  </div>
-);
+// --- Graph Tab ---
+const GraphTab = () => {
+  const [graphData, setGraphData] = useState<any>({ nodes: [], links: [] });
+  const [loading, setLoading] = useState(true);
+  const [selectedNode, setSelectedNode] = useState<any>(null);
+  const containerRef = React.useRef<HTMLDivElement>(null);
+  const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
+
+  const fetchGraphData = async () => {
+    setLoading(true);
+    try {
+      const res = await axios.get(`${API_BASE}/api/graph`, { params: { limit: 50 } });
+      setGraphData(res.data);
+    } catch (err) {
+      console.error(err);
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    fetchGraphData();
+  }, []);
+
+  useEffect(() => {
+    if (containerRef.current) {
+      const { offsetWidth, offsetHeight } = containerRef.current;
+      setDimensions({ width: offsetWidth || 800, height: Math.max(offsetHeight, 500) });
+    }
+  }, [graphData]);
+
+  const getNodeColor = (type: string) => {
+    switch (type) {
+      case 'person': return '#ec4899'; // pink
+      case 'org': return '#3b82f6'; // blue
+      case 'date': return '#eab308'; // yellow
+      case 'money': return '#22c55e'; // green
+      case 'gpe': return '#f97316'; // orange
+      default: return '#8b5cf6'; // purple
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="neo-card p-4 flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-black uppercase">Entity Relationship Graph</h2>
+          <p className="text-sm text-gray-600">Entities that appear together in the same content are connected.</p>
+        </div>
+        <div className="flex items-center gap-4">
+          <div className="text-sm">
+            <span className="font-bold">{graphData.stats?.total_nodes || 0}</span> nodes,{' '}
+            <span className="font-bold">{graphData.stats?.total_links || 0}</span> connections
+          </div>
+          <button onClick={fetchGraphData} className="neo-button p-2">
+            <RefreshCw size={16} />
+          </button>
+        </div>
+      </div>
+
+      {/* Legend */}
+      <div className="flex flex-wrap gap-4 px-2">
+        {[
+          { type: 'person', label: 'People', color: '#ec4899' },
+          { type: 'org', label: 'Organizations', color: '#3b82f6' },
+          { type: 'date', label: 'Dates', color: '#eab308' },
+          { type: 'money', label: 'Money', color: '#22c55e' },
+          { type: 'gpe', label: 'Places', color: '#f97316' },
+          { type: 'other', label: 'Other', color: '#8b5cf6' },
+        ].map((item) => (
+          <div key={item.type} className="flex items-center gap-2">
+            <div className="w-4 h-4 rounded-full border-2 border-black" style={{ backgroundColor: item.color }} />
+            <span className="text-sm font-bold">{item.label}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Graph */}
+      <div ref={containerRef} className="neo-card p-0 overflow-hidden" style={{ height: '500px' }}>
+        {loading ? (
+          <div className="h-full flex items-center justify-center">
+            <div className="text-2xl font-bold animate-pulse">LOADING GRAPH...</div>
+          </div>
+        ) : graphData.nodes.length === 0 ? (
+          <div className="h-full flex flex-col items-center justify-center p-8">
+            <div className="text-xl font-bold mb-2">NO GRAPH DATA</div>
+            <p className="text-gray-600 text-center">
+              Extract entities first from the Knowledge tab, then return here to see relationships.
+            </p>
+          </div>
+        ) : (
+          <ForceGraphComponent
+            data={graphData}
+            width={dimensions.width}
+            height={500}
+            getNodeColor={getNodeColor}
+            onNodeClick={setSelectedNode}
+          />
+        )}
+      </div>
+
+      {/* Selected Entity Info */}
+      {selectedNode && (
+        <div className="neo-card neo-yellow p-4">
+          <h3 className="font-black uppercase mb-2">Selected Entity</h3>
+          <div className="grid grid-cols-3 gap-4">
+            <div><span className="text-sm text-gray-600">Name:</span> <span className="font-bold">{selectedNode.label}</span></div>
+            <div><span className="text-sm text-gray-600">Type:</span> <span className="font-bold uppercase">{selectedNode.type}</span></div>
+            <div><span className="text-sm text-gray-600">Occurrences:</span> <span className="font-bold">{selectedNode.freq}</span></div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Force Graph Component using Canvas
+const ForceGraphComponent = ({ data, width, height, getNodeColor, onNodeClick }: any) => {
+  const canvasRef = React.useRef<HTMLCanvasElement>(null);
+  const [nodes, setNodes] = useState<any[]>([]);
+  const [links, setLinks] = useState<any[]>([]);
+
+  useEffect(() => {
+    // Initialize node positions
+    const initializedNodes = data.nodes.map((node: any) => ({
+      ...node,
+      x: width / 2 + (Math.random() - 0.5) * 300,
+      y: height / 2 + (Math.random() - 0.5) * 300,
+      vx: 0,
+      vy: 0,
+    }));
+    setNodes(initializedNodes);
+    setLinks(data.links);
+  }, [data, width, height]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || nodes.length === 0) return;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // Simple force simulation
+    const simulate = () => {
+      // Apply forces
+      nodes.forEach((node) => {
+        // Center gravity
+        node.vx += (width / 2 - node.x) * 0.001;
+        node.vy += (height / 2 - node.y) * 0.001;
+
+        // Repulsion between nodes
+        nodes.forEach((other) => {
+          if (node.id !== other.id) {
+            const dx = node.x - other.x;
+            const dy = node.y - other.y;
+            const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+            if (dist < 100) {
+              const force = 50 / dist;
+              node.vx += (dx / dist) * force;
+              node.vy += (dy / dist) * force;
+            }
+          }
+        });
+      });
+
+      // Link forces (attraction)
+      links.forEach((link: any) => {
+        const source = nodes.find((n) => n.id === link.source);
+        const target = nodes.find((n) => n.id === link.target);
+        if (source && target) {
+          const dx = target.x - source.x;
+          const dy = target.y - source.y;
+          const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+          const force = (dist - 80) * 0.01;
+          source.vx += (dx / dist) * force;
+          source.vy += (dy / dist) * force;
+          target.vx -= (dx / dist) * force;
+          target.vy -= (dy / dist) * force;
+        }
+      });
+
+      // Update positions
+      nodes.forEach((node) => {
+        node.vx *= 0.9; // Damping
+        node.vy *= 0.9;
+        node.x += node.vx;
+        node.y += node.vy;
+        // Bounds
+        node.x = Math.max(20, Math.min(width - 20, node.x));
+        node.y = Math.max(20, Math.min(height - 20, node.y));
+      });
+
+      // Draw
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, width, height);
+
+      // Draw links
+      ctx.strokeStyle = '#00000033';
+      ctx.lineWidth = 1;
+      links.forEach((link: any) => {
+        const source = nodes.find((n) => n.id === link.source);
+        const target = nodes.find((n) => n.id === link.target);
+        if (source && target) {
+          ctx.beginPath();
+          ctx.moveTo(source.x, source.y);
+          ctx.lineTo(target.x, target.y);
+          ctx.stroke();
+        }
+      });
+
+      // Draw nodes
+      nodes.forEach((node) => {
+        const radius = node.size / 2;
+        ctx.fillStyle = getNodeColor(node.type);
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(node.x, node.y, radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
+        // Labels for larger nodes
+        if (node.size > 10) {
+          ctx.fillStyle = '#000';
+          ctx.font = 'bold 10px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText(node.label.substring(0, 12), node.x, node.y + radius + 12);
+        }
+      });
+    };
+
+    const interval = setInterval(simulate, 50);
+    return () => clearInterval(interval);
+  }, [nodes, links, width, height, getNodeColor]);
+
+  const handleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    const clicked = nodes.find((node) => {
+      const dx = node.x - x;
+      const dy = node.y - y;
+      return Math.sqrt(dx * dx + dy * dy) < node.size / 2 + 5;
+    });
+
+    if (clicked) onNodeClick(clicked);
+  };
+
+  return (
+    <canvas
+      ref={canvasRef}
+      width={width}
+      height={height}
+      onClick={handleClick}
+      style={{ cursor: 'pointer' }}
+    />
+  );
+};
 
 export default App;
