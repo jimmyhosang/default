@@ -18,7 +18,8 @@ import {
   Filter,
   RefreshCw,
   Play,
-  Square
+  Square,
+  Settings
 } from 'lucide-react';
 import axios from 'axios';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -52,6 +53,7 @@ function App() {
     { id: 'search', label: 'Search', icon: <Search size={18} /> },
     { id: 'entities', label: 'Knowledge', icon: <Database size={18} /> },
     { id: 'graph', label: 'Graph', icon: <Share2 size={18} /> },
+    { id: 'settings', label: 'Settings', icon: <Settings size={18} /> },
   ];
 
   return (
@@ -100,11 +102,90 @@ function App() {
           {activeTab === 'search' && <SearchTab key="search" />}
           {activeTab === 'entities' && <EntitiesTab key="entities" />}
           {activeTab === 'graph' && <GraphTab key="graph" />}
+          {activeTab === 'settings' && <SettingsTab key="settings" />}
         </AnimatePresence>
       </main>
     </div>
   );
 }
+
+// --- Action Bar Component ---
+const ActionBar = () => {
+  const [input, setInput] = useState('');
+  const [result, setResult] = useState<any>(null);
+  const [executing, setExecuting] = useState(false);
+
+  const handleExecute = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!input.trim()) return;
+
+    setExecuting(true);
+    setResult(null);
+
+    // Simple parser for demonstration
+    // "open_file /path/to/file" -> action: "open_file", params: { path: "/path/to/file" }
+    // "search query" -> action: "search", params: { query: "query" }
+    // "summarize" -> action: "summarize_today"
+
+    let action = 'search';
+    let params: any = { query: input };
+
+    if (input.startsWith('open ')) {
+      action = 'open_file';
+      params = { path: input.substring(5) };
+    } else if (input === 'summarize') {
+      action = 'summarize_today';
+      params = {};
+    }
+
+    try {
+      const res = await axios.post(`${API_BASE}/api/actions/execute`, { action, params });
+      setResult(res.data);
+    } catch (err) {
+      console.error(err);
+      setResult({ status: 'error', results: ['Failed to execute action'] });
+    }
+    setExecuting(false);
+  };
+
+  return (
+    <div className="neo-card p-6 bg-black text-white">
+      <h3 className="text-xl font-black uppercase mb-4 text-white">System Actions</h3>
+      <form onSubmit={handleExecute} className="flex gap-4">
+        <input
+          type="text"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          placeholder="Type a command (e.g., 'search project', 'open /path/to/file', 'summarize')..."
+          className="flex-1 bg-white text-black p-3 font-mono border-2 border-white focus:outline-none focus:neo-yellow"
+        />
+        <button
+          type="submit"
+          disabled={executing}
+          className="neo-button neo-yellow px-6 font-bold text-black border-white hover:bg-white disabled:opacity-50"
+        >
+          {executing ? 'RUNNING...' : 'EXECUTE'}
+        </button>
+      </form>
+
+      {result && (
+        <div className="mt-4 p-4 border-2 border-white bg-gray-900 font-mono text-sm max-h-40 overflow-y-auto">
+          <div className="font-bold text-green-400 mb-2">
+            &gt; {result.status === 'success' ? 'SUCCESS' : 'ERROR'} ({result.action})
+          </div>
+          {result.results && result.results.map((line: any, i: number) => (
+            <div key={i} className="text-gray-300">
+              {typeof line === 'string' ? line : JSON.stringify(line)}
+            </div>
+          ))}
+          {result.results && result.results.length === 0 && (
+            <div className="text-gray-500 italic">No output</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
 
 // --- Overview Tab ---
 const OverviewTab = ({ stats, loading }: any) => {
@@ -126,6 +207,9 @@ const OverviewTab = ({ stats, loading }: any) => {
 
   return (
     <div className="space-y-6">
+      {/* Action Bar */}
+      <ActionBar />
+
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <StatCard
@@ -876,6 +960,241 @@ const ForceGraphComponent = ({ data, width, height, getNodeColor, onNodeClick }:
       onClick={handleClick}
       style={{ cursor: 'pointer' }}
     />
+  );
+};
+
+// --- Settings Tab ---
+const SettingsTab = () => {
+  const [settings, setSettings] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [activeSection, setActiveSection] = useState('general');
+  const [message, setMessage] = useState('');
+
+  useEffect(() => {
+    fetchSettings();
+  }, []);
+
+  const fetchSettings = async () => {
+    try {
+      const res = await axios.get(`${API_BASE}/api/settings`);
+      setSettings(res.data);
+    } catch (err) {
+      console.error(err);
+    }
+    setLoading(false);
+  };
+
+  const updateSettings = async (newSettings: any) => {
+    try {
+      await axios.put(`${API_BASE}/api/settings`, newSettings);
+      setSettings((prev: any) => ({ ...prev, ...newSettings }));
+      setMessage('Settings saved!');
+      setTimeout(() => setMessage(''), 3000);
+    } catch (err) {
+      console.error(err);
+      setMessage('Failed to save settings');
+    }
+  };
+
+  const handleCaptureChange = (key: string, value: any) => {
+    updateSettings({ capture: { ...settings.capture, [key]: value } });
+  };
+
+  const handleStorageChange = (key: string, value: any) => {
+    updateSettings({ storage: { ...settings.storage, [key]: value } });
+  };
+
+  const handleLLMChange = (key: string, value: any) => {
+    updateSettings({ llm: { ...settings.llm, [key]: value } });
+  };
+
+  if (loading || !settings) return <div className="p-8 text-center font-bold">LOADING SETTINGS...</div>;
+
+  return (
+    <div className="space-y-6">
+      <div className="neo-card p-4 flex justify-between items-center">
+        <div>
+          <h2 className="text-2xl font-black uppercase">System Settings</h2>
+          <p className="text-sm text-gray-600">Configure capture, storage, and AI providers.</p>
+        </div>
+        {message && (
+          <div className="neo-card neo-green px-4 py-2 font-bold animate-pulse">
+            {message}
+          </div>
+        )}
+      </div>
+
+      <div className="flex gap-4 border-b-2 border-black pb-4 overflow-x-auto">
+        {['general', 'storage', 'ai'].map((section) => (
+          <button
+            key={section}
+            onClick={() => setActiveSection(section)}
+            className={`neo-button px-4 py-2 uppercase font-bold text-sm ${activeSection === section ? 'neo-yellow' : 'bg-white'
+              }`}
+          >
+            {section}
+          </button>
+        ))}
+      </div>
+
+      {activeSection === 'general' && (
+        <div className="neo-card p-6 space-y-6">
+          <h3 className="text-xl font-black uppercase mb-4">Capture Settings</h3>
+
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <label className="font-bold">Screen Capture Interval (seconds)</label>
+              <input
+                type="number"
+                value={settings.capture.screen_interval}
+                onChange={(e) => handleCaptureChange('screen_interval', parseInt(e.target.value))}
+                className="border-2 border-black p-2 w-32 font-mono"
+              />
+            </div>
+
+            <div className="flex items-center justify-between">
+              <label className="font-bold">Enable Clipboard Monitor</label>
+              <input
+                type="checkbox"
+                checked={settings.capture.clipboard_enabled}
+                onChange={(e) => handleCaptureChange('clipboard_enabled', e.target.checked)}
+                className="w-6 h-6 border-2 border-black accent-black"
+              />
+            </div>
+
+            <div className="flex items-center justify-between">
+              <label className="font-bold">Enable File Watcher</label>
+              <input
+                type="checkbox"
+                checked={settings.capture.file_watch_enabled}
+                onChange={(e) => handleCaptureChange('file_watch_enabled', e.target.checked)}
+                className="w-6 h-6 border-2 border-black accent-black"
+              />
+            </div>
+
+            <div>
+              <label className="font-bold block mb-2">Watch Directories</label>
+              <div className="space-y-2">
+                {settings.capture.watch_directories.map((dir: string, i: number) => (
+                  <div key={i} className="bg-gray-100 p-2 border-2 border-black font-mono text-sm">
+                    {dir}
+                  </div>
+                ))}
+                <p className="text-xs text-gray-500 mt-1">* Edit config file to change directories</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeSection === 'storage' && (
+        <div className="neo-card p-6 space-y-6">
+          <h3 className="text-xl font-black uppercase mb-4">Storage Limits</h3>
+
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <label className="font-bold">Max Captures to Keep</label>
+              <input
+                type="number"
+                value={settings.storage.max_captures}
+                onChange={(e) => handleStorageChange('max_captures', parseInt(e.target.value))}
+                className="border-2 border-black p-2 w-32 font-mono"
+              />
+            </div>
+
+            <div className="flex items-center justify-between">
+              <label className="font-bold">Retention Period (Days)</label>
+              <input
+                type="number"
+                value={settings.storage.max_days}
+                onChange={(e) => handleStorageChange('max_days', parseInt(e.target.value))}
+                className="border-2 border-black p-2 w-32 font-mono"
+              />
+            </div>
+
+            <div className="flex items-center justify-between">
+              <label className="font-bold">Auto-Cleanup Enabled</label>
+              <input
+                type="checkbox"
+                checked={settings.storage.auto_cleanup}
+                onChange={(e) => handleStorageChange('auto_cleanup', e.target.checked)}
+                className="w-6 h-6 border-2 border-black accent-black"
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeSection === 'ai' && (
+        <div className="neo-card p-6 space-y-6">
+          <h3 className="text-xl font-black uppercase mb-4">AI Provider Configuration</h3>
+
+          <div className="space-y-4">
+            <div>
+              <label className="font-bold block mb-2">LLM Provider</label>
+              <select
+                value={settings.llm.provider}
+                onChange={(e) => handleLLMChange('provider', e.target.value)}
+                className="w-full border-2 border-black p-2 bg-white font-mono"
+              >
+                <option value="ollama">Ollama (Local)</option>
+                <option value="openai">OpenAI (Cloud)</option>
+                <option value="anthropic">Anthropic (Cloud)</option>
+              </select>
+            </div>
+
+            {settings.llm.provider === 'ollama' && (
+              <>
+                <div>
+                  <label className="font-bold block mb-2">Ollama Model</label>
+                  <input
+                    type="text"
+                    value={settings.llm.ollama_model}
+                    onChange={(e) => handleLLMChange('ollama_model', e.target.value)}
+                    className="w-full border-2 border-black p-2 font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="font-bold block mb-2">Ollama URL</label>
+                  <input
+                    type="text"
+                    value={settings.llm.ollama_url}
+                    onChange={(e) => handleLLMChange('ollama_url', e.target.value)}
+                    className="w-full border-2 border-black p-2 font-mono"
+                  />
+                </div>
+              </>
+            )}
+
+            {settings.llm.provider === 'openai' && (
+              <div>
+                <label className="font-bold block mb-2">OpenAI API Key</label>
+                <input
+                  type="password"
+                  value={settings.llm.openai_api_key}
+                  onChange={(e) => handleLLMChange('openai_api_key', e.target.value)}
+                  className="w-full border-2 border-black p-2 font-mono"
+                  placeholder="sk-..."
+                />
+              </div>
+            )}
+
+            {settings.llm.provider === 'anthropic' && (
+              <div>
+                <label className="font-bold block mb-2">Anthropic API Key</label>
+                <input
+                  type="password"
+                  value={settings.llm.anthropic_api_key}
+                  onChange={(e) => handleLLMChange('anthropic_api_key', e.target.value)}
+                  className="w-full border-2 border-black p-2 font-mono"
+                  placeholder="sk-ant-..."
+                />
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
   );
 };
 

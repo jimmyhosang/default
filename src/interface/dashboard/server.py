@@ -863,6 +863,179 @@ async def get_graph_data(
     }
 
 
+# === Settings API ===
+SETTINGS_FILE = Path.home() / ".unified-ai" / "settings.json"
+
+def get_default_settings() -> Dict[str, Any]:
+    """Get default settings."""
+    return {
+        "capture": {
+            "screen_interval": 30,
+            "clipboard_enabled": True,
+            "file_watch_enabled": True,
+            "watch_directories": ["~/Documents", "~/Desktop", "~/Downloads"],
+        },
+        "storage": {
+            "max_captures": 10000,
+            "max_days": 90,
+            "auto_cleanup": True,
+        },
+        "llm": {
+            "provider": "ollama",
+            "ollama_model": "mistral",
+            "ollama_url": "http://localhost:11434",
+            "openai_api_key": "",
+            "anthropic_api_key": "",
+        },
+        "ui": {
+            "theme": "auto",
+            "start_minimized": False,
+            "show_notifications": True,
+        }
+    }
+
+def load_settings() -> Dict[str, Any]:
+    """Load settings from file or return defaults."""
+    try:
+        if SETTINGS_FILE.exists():
+            return json.loads(SETTINGS_FILE.read_text())
+    except Exception:
+        pass
+    return get_default_settings()
+
+def save_settings(settings: Dict[str, Any]) -> bool:
+    """Save settings to file."""
+    try:
+        SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        SETTINGS_FILE.write_text(json.dumps(settings, indent=2))
+        return True
+    except Exception:
+        return False
+
+
+@app.get("/api/settings")
+async def get_settings() -> Dict[str, Any]:
+    """Get current settings."""
+    return load_settings()
+
+
+@app.put("/api/settings")
+async def update_settings(settings: Dict[str, Any]) -> Dict[str, Any]:
+    """Update settings."""
+    current = load_settings()
+    # Deep merge
+    for key, value in settings.items():
+        if isinstance(value, dict) and key in current:
+            current[key].update(value)
+        else:
+            current[key] = value
+    
+    if save_settings(current):
+        return {"status": "success", "settings": current}
+    raise HTTPException(status_code=500, detail="Failed to save settings")
+
+
+@app.post("/api/settings/reset")
+async def reset_settings() -> Dict[str, Any]:
+    """Reset settings to defaults."""
+    defaults = get_default_settings()
+    save_settings(defaults)
+    return {"status": "success", "settings": defaults}
+
+
+# === Browser Extension API ===
+@app.post("/api/browser/add")
+async def add_browser_history(data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Add browser history from extension.
+    Expected: { url, title, content?, timestamp? }
+    """
+    url = data.get("url", "")
+    title = data.get("title", "")
+    content = data.get("content", f"{title}\n{url}")
+    
+    # Store in semantic store
+    content_id = store.add(
+        content=content,
+        source_type="manual",  # Will be "browser" once we add support
+        metadata={"url": url, "title": title, "source": "browser_extension"}
+    )
+    
+    return {"status": "success", "content_id": content_id}
+
+
+@app.get("/api/browser/history")
+async def get_browser_history(
+    limit: int = Query(50, ge=1, le=200)
+) -> Dict[str, Any]:
+    """Get browser history from semantic store."""
+    import sqlite3
+    conn = sqlite3.connect(store.db_path)
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        SELECT id, content, timestamp, metadata FROM semantic_content
+        WHERE metadata LIKE '%browser_extension%'
+        ORDER BY timestamp DESC
+        LIMIT ?
+    """, (limit,))
+    
+    items = []
+    for row in cursor.fetchall():
+        meta = json.loads(row[3]) if row[3] else {}
+        items.append({
+            "id": row[0],
+            "url": meta.get("url", ""),
+            "title": meta.get("title", ""),
+            "timestamp": row[2],
+        })
+    
+    conn.close()
+    return {"items": items, "count": len(items)}
+
+
+# === Action Execution API ===
+@app.post("/api/actions/execute")
+async def execute_action(data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Execute an action via the System of Action.
+    Expected: { action: string, params?: object }
+    """
+    action = data.get("action", "")
+    params = data.get("params", {})
+    
+    if not action:
+        raise HTTPException(status_code=400, detail="Action is required")
+    
+    # Map common actions to handlers
+    results = []
+    
+    if action == "open_file":
+        path = params.get("path", "")
+        if path:
+            import subprocess
+            subprocess.run(["open", path])
+            results.append(f"Opened: {path}")
+    
+    elif action == "search":
+        query = params.get("query", "")
+        if query:
+            search_results = store.search(query, limit=5)
+            results = [{"content": r["content"][:200]} for r in search_results]
+    
+    elif action == "summarize_today":
+        # Get today's captures and summarize
+        from datetime import datetime
+        today = datetime.now().strftime("%Y-%m-%d")
+        search_results = store.search(f'"{today}"', limit=20)
+        results.append(f"Found {len(search_results)} items from today")
+    
+    else:
+        results.append(f"Unknown action: {action}")
+    
+    return {"status": "success", "action": action, "results": results}
+
+
 # === Catch-all route for SPA (must be last) ===
 @app.get("/{full_path:path}")
 async def serve_react_app(full_path: str):

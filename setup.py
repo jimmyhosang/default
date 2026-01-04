@@ -6,7 +6,9 @@ Usage:
     
 The resulting app will be in dist/Unified AI System.app
 """
-from setuptools import setup
+import sys
+sys.setrecursionlimit(5000)
+from setuptools import setup, find_packages
 
 APP = ['src/interface/desktop/app.py']
 DATA_FILES = [
@@ -14,7 +16,7 @@ DATA_FILES = [
 ]
 OPTIONS = {
     'argv_emulation': False,
-    'iconfile': None,  # Add 'assets/icon.icns' when available
+    'iconfile': None,
     'plist': {
         'CFBundleName': 'Unified AI System',
         'CFBundleDisplayName': 'Unified AI System',
@@ -22,11 +24,10 @@ OPTIONS = {
         'CFBundleVersion': '1.0.0',
         'CFBundleShortVersionString': '1.0.0',
         'NSHighResolutionCapable': True,
-        'LSUIElement': False,  # Set to True for menu-bar-only app
-        'NSRequiresAquaSystemAppearance': False,  # Support dark mode
+        'LSUIElement': False,
+        'NSRequiresAquaSystemAppearance': False,
     },
-    'packages': [
-        'src',
+    'packages': find_packages(include=['src*']) + [
         'uvicorn',
         'fastapi',
         'webview',
@@ -37,11 +38,14 @@ OPTIONS = {
         'sentence_transformers',
     ],
     'includes': [
-        'src.interface.dashboard.server',
-        'src.interface.desktop.tray',
-        'src.interface.desktop.autostart',
-        'src.store.semantic_store',
-        'src.thought.rag',
+        'uvicorn.logging',
+        'uvicorn.loops',
+        'uvicorn.loops.auto',
+        'uvicorn.protocols',
+        'uvicorn.protocols.http',
+        'uvicorn.protocols.http.auto',
+        'uvicorn.lifespan',
+        'uvicorn.lifespan.on',
     ],
     'excludes': [
         'matplotlib',

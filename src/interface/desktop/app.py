@@ -9,8 +9,9 @@ import webview
 import uvicorn
 from pathlib import Path
 
-# Add project root to path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
+# Add project root to path if running from source
+if not getattr(sys, 'frozen', False):
+    sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
 from src.interface.dashboard.server import app
 from src.interface.desktop.tray import TrayIcon
