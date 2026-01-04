@@ -48,22 +48,27 @@ app.add_middleware(
 # Initialize semantic store
 store = SemanticStore()
 
-# Get dashboard directory
-DASHBOARD_DIR = Path(__file__).parent
+# Mount React static files
+DIST_DIR = Path(__file__).parent.parent / "web" / "dist"
+if DIST_DIR.exists():
+    app.mount("/assets", StaticFiles(directory=str(DIST_DIR / "assets")), name="assets")
 
-
-@app.get("/", response_class=HTMLResponse)
-async def root():
-    """Serve the main dashboard HTML page."""
-    index_path = DASHBOARD_DIR / "index.html"
+@app.get("/{full_path:path}")
+async def serve_react_app(full_path: str):
+    """Serve the React app for any unmatched route (SPA support)."""
+    # API routes are handled by specific endpoints defined above/below
+    if full_path.startswith("api/"):
+        raise HTTPException(status_code=404, detail="API endpoint not found")
+        
+    index_path = DIST_DIR / "index.html"
     if not index_path.exists():
         return HTMLResponse("""
             <html><body>
-                <h1>Dashboard not found</h1>
-                <p>The index.html file is missing. Please ensure all dashboard files are present.</p>
+                <h1>Frontend Build Not Found</h1>
+                <p>Please run 'npm run build' in src/interface/web first.</p>
             </body></html>
         """, status_code=404)
-
+        
     return FileResponse(index_path)
 
 

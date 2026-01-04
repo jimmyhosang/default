@@ -36,6 +36,7 @@ fastapi>=0.109.0              # Local API server
 uvicorn>=0.27.0               # ASGI server
 typer>=0.9.0                  # CLI framework
 rich>=13.0.0                  # Terminal formatting
+pywebview>=5.0.0              # Desktop wrapper
 
 # === Development ===
 pytest>=8.0.0                 # Testing
@@ -45,6 +46,6 @@ ruff>=0.2.0                   # Linting
 mypy>=1.8.0                   # Type checking
 
 # === Platform-Specific (uncomment as needed) ===
-# pyobjc>=10.0             # macOS window management
+pyobjc>=10.0             # macOS window management
 # pywin32>=306             # Windows APIs
 # python-xlib>=0.33        # Linux X11 access
