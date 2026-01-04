@@ -206,23 +206,86 @@ const TimelineTab = () => (
   </div>
 );
 
-const SearchTab = () => (
-  <div className="max-w-2xl mx-auto space-y-6">
-    <div className="neo-card neo-blue p-8">
-      <h2 className="text-3xl font-black uppercase mb-6">Search Everything</h2>
-      <div className="flex gap-4">
-        <input
-          type="text"
-          placeholder="Type your query..."
-          className="neo-input flex-1 px-4 py-3 text-lg"
-        />
-        <button className="neo-button px-6 py-3">
-          SEARCH
-        </button>
+const SearchTab = () => {
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<any>(null);
+  const [searching, setSearching] = useState(false);
+
+  const handleSearch = async () => {
+    if (!query.trim()) return;
+    setSearching(true);
+    try {
+      const res = await axios.get(`${API_BASE}/api/search`, {
+        params: { q: query, mode: 'semantic' }
+      });
+      setResults(res.data);
+    } catch (err) {
+      console.error(err);
+    }
+    setSearching(false);
+  };
+
+  return (
+    <div className="max-w-4xl mx-auto space-y-8">
+      <div className="neo-card neo-blue p-8">
+        <h2 className="text-3xl font-black uppercase mb-6">Search Everything</h2>
+        <div className="flex gap-4">
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+            placeholder="Ask a question or search keywords..."
+            className="neo-input flex-1 px-4 py-3 text-lg"
+          />
+          <button
+            onClick={handleSearch}
+            disabled={searching}
+            className="neo-button px-6 py-3 disabled:opacity-50"
+          >
+            {searching ? 'SEARCHING...' : 'SEARCH'}
+          </button>
+        </div>
       </div>
+
+      {results && (
+        <div className="space-y-6">
+          {/* AI Answer */}
+          {results.answer && (
+            <div className="neo-card neo-yellow p-6">
+              <div className="flex items-center gap-2 mb-4">
+                <Zap size={24} />
+                <h3 className="text-xl font-black uppercase">AI Answer</h3>
+              </div>
+              <div className="text-lg leading-relaxed whitespace-pre-wrap">
+                {results.answer}
+              </div>
+            </div>
+          )}
+
+          {/* Results List */}
+          <div className="grid gap-4">
+            {results.results?.map((item: any, i: number) => (
+              <div key={i} className="neo-card p-4 hover:translate-x-1 transition-transform">
+                <div className="flex justify-between items-start mb-2">
+                  <span className="bg-black text-white text-xs font-bold px-2 py-1 uppercase">
+                    {item.source_type}
+                  </span>
+                  <span className="text-xs font-bold text-gray-500">
+                    {new Date(item.timestamp).toLocaleString()}
+                  </span>
+                </div>
+                <div className="font-mono text-sm line-clamp-3">
+                  {item.content}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
-  </div>
-);
+  );
+};
 
 const EntitiesTab = () => (
   <div className="neo-card neo-green p-8">

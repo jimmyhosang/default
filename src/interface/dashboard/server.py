@@ -23,12 +23,14 @@ import json
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
 from src.store.semantic_store import SemanticStore
+from src.thought.rag import RAGEngine
 
 app = FastAPI(
     title="Unified AI System Dashboard",
@@ -45,11 +47,49 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize semantic store
+# Initialize systems
 store = SemanticStore()
+rag_engine = RAGEngine(store=store)
 
 # Mount React static files
 DIST_DIR = Path(__file__).parent.parent / "web" / "dist"
+if DIST_DIR.exists():
+    app.mount("/assets", StaticFiles(directory=str(DIST_DIR / "assets")), name="assets")
+
+
+@app.get("/api/search")
+async def search(
+    q: str = Query(..., description="Search query"),
+    mode: str = Query("hybrid", description="Search mode: hybrid, semantic, exact"),
+    limit: int = Query(20, ge=1, le=100)
+):
+    """
+    Search across captured content.
+    Mode 'semantic' or 'hybrid' uses the RAG engine for intelligence.
+    """
+    if mode == "exact":
+        # Simple DB search
+        results = store.search(q, limit=limit)
+        return {"results": results, "answer": None}
+    
+    # RAG Search (Ask my Data)
+    # Note: For a pure list of results without LLM answer, we could just call store.semantic_search
+    # But 'search' usually implies finding documents. 
+    # Let's support an 'ask' flag or infer intent? 
+    # For now, let's treat the main search bar as an "Ask" bar if it looks like a question,
+    # or just return results if it looks like a keyword.
+    
+    # Simple heuristic: if query length > 20 or contains space, assume it might be a question?
+    # Actually, let's just return the LLM answer if it's 'semantic' mode.
+    
+    rag_result = await rag_engine.query(q, limit=5)
+    
+    # Mix relevant documents (context) into the results list
+    return {
+        "answer": rag_result["answer"],
+        "results": rag_result["context"]
+    }
+
 if DIST_DIR.exists():
     app.mount("/assets", StaticFiles(directory=str(DIST_DIR / "assets")), name="assets")
 
