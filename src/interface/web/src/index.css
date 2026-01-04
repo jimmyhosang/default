@@ -3,28 +3,98 @@
 @tailwind utilities;
 
 :root {
-  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  --neo-black: #000000;
+  --neo-white: #ffffff;
+  --neo-yellow: #FFDD00;
+  --neo-pink: #FF6B9D;
+  --neo-blue: #4DEEEA;
+  --neo-green: #74EE15;
+  --neo-purple: #B967FF;
+  --neo-orange: #FF9F1C;
+
+  --border-width: 3px;
+  --shadow-offset: 6px;
+
+  font-family: 'Space Grotesk', 'Inter', system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
 }
 
 body {
   margin: 0;
-  display: flex;
-  place-items: center;
-  min-width: 320px;
+  background-color: var(--neo-white);
+  color: var(--neo-black);
   min-height: 100vh;
-  background-color: #f8fafc;
-  color: #0f172a;
 }
 
-/* Glassmorphism utilities */
-.glass-panel {
-  background: rgba(255, 255, 255, 0.7);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.3);
+/* Neo-brutal base components */
+.neo-card {
+  background: var(--neo-white);
+  border: var(--border-width) solid var(--neo-black);
+  box-shadow: var(--shadow-offset) var(--shadow-offset) 0 var(--neo-black);
+  transition: transform 0.1s, box-shadow 0.1s;
 }
 
-.dark .glass-panel {
-  background: rgba(15, 23, 42, 0.6);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+.neo-card:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: calc(var(--shadow-offset) + 2px) calc(var(--shadow-offset) + 2px) 0 var(--neo-black);
+}
+
+.neo-button {
+  background: var(--neo-yellow);
+  border: var(--border-width) solid var(--neo-black);
+  box-shadow: 4px 4px 0 var(--neo-black);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  transition: all 0.1s;
+}
+
+.neo-button:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 6px 6px 0 var(--neo-black);
+}
+
+.neo-button:active {
+  transform: translate(2px, 2px);
+  box-shadow: 2px 2px 0 var(--neo-black);
+}
+
+.neo-input {
+  border: var(--border-width) solid var(--neo-black);
+  background: var(--neo-white);
+  font-weight: 500;
+}
+
+.neo-input:focus {
+  outline: none;
+  box-shadow: 4px 4px 0 var(--neo-black);
+}
+
+/* Color variants */
+.neo-yellow {
+  background: var(--neo-yellow);
+}
+
+.neo-pink {
+  background: var(--neo-pink);
+}
+
+.neo-blue {
+  background: var(--neo-blue);
+}
+
+.neo-green {
+  background: var(--neo-green);
+}
+
+.neo-purple {
+  background: var(--neo-purple);
+}
+
+.neo-orange {
+  background: var(--neo-orange);
 }
