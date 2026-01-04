@@ -16,7 +16,9 @@ import {
   Calendar,
   DollarSign,
   Filter,
-  RefreshCw
+  RefreshCw,
+  Play,
+  Square
 } from 'lucide-react';
 import axios from 'axios';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -165,22 +167,7 @@ const OverviewTab = ({ stats, loading }: any) => {
           </div>
         </div>
 
-        <div className="neo-card neo-purple p-6">
-          <h3 className="text-xl font-black uppercase mb-4 border-b-4 border-black pb-2">
-            Quick Actions
-          </h3>
-          <div className="space-y-3">
-            <button className="neo-button w-full py-3 bg-white">
-              🔍 Search Everything
-            </button>
-            <button className="neo-button w-full py-3 bg-white">
-              📸 New Capture
-            </button>
-            <button className="neo-button w-full py-3 bg-white">
-              🤖 Ask AI
-            </button>
-          </div>
-        </div>
+        <CaptureControlPanel />
       </div>
     </div>
   );
@@ -205,6 +192,96 @@ const StatusRow = ({ label, status }: { label: string; status: boolean }) => (
     </span>
   </div>
 );
+
+// --- Capture Control Panel ---
+const CaptureControlPanel = () => {
+  const [status, setStatus] = useState<any>({});
+
+  const fetchStatus = async () => {
+    try {
+      const res = await axios.get(`${API_BASE}/api/capture/status`);
+      setStatus(res.data);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  useEffect(() => {
+    fetchStatus();
+    const interval = setInterval(fetchStatus, 5000); // Poll every 5s
+    return () => clearInterval(interval);
+  }, []);
+
+  const toggleDaemon = async (name: string, isRunning: boolean) => {
+    try {
+      const action = isRunning ? 'stop' : 'start';
+      await axios.post(`${API_BASE}/api/capture/${action}/${name}`);
+      await fetchStatus(); // Refresh status
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const startAll = async () => {
+    await axios.post(`${API_BASE}/api/capture/start-all`);
+    await fetchStatus();
+  };
+
+  const stopAll = async () => {
+    await axios.post(`${API_BASE}/api/capture/stop-all`);
+    await fetchStatus();
+  };
+
+  const daemons = [
+    { id: 'screen', label: 'Screen Capture', icon: <Monitor size={18} /> },
+    { id: 'clipboard', label: 'Clipboard Monitor', icon: <Clipboard size={18} /> },
+    { id: 'file', label: 'File Watcher', icon: <FileText size={18} /> },
+  ];
+
+  return (
+    <div className="neo-card neo-purple p-6">
+      <h3 className="text-xl font-black uppercase mb-4 border-b-4 border-black pb-2">
+        Capture Daemons
+      </h3>
+      <div className="space-y-3">
+        {daemons.map((daemon) => {
+          const isRunning = status[daemon.id]?.running;
+          return (
+            <div
+              key={daemon.id}
+              className="flex items-center justify-between p-3 bg-white border-2 border-black"
+            >
+              <div className="flex items-center gap-2">
+                {daemon.icon}
+                <span className="font-bold">{daemon.label}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className={`text-xs font-bold ${isRunning ? 'text-green-600' : 'text-gray-400'}`}>
+                  {isRunning ? 'RUNNING' : 'STOPPED'}
+                </span>
+                <button
+                  onClick={() => toggleDaemon(daemon.id, isRunning)}
+                  className={`neo-button p-2 ${isRunning ? 'neo-pink' : 'neo-green'}`}
+                  title={isRunning ? 'Stop' : 'Start'}
+                >
+                  {isRunning ? <Square size={14} /> : <Play size={14} />}
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="flex gap-2 mt-4">
+        <button onClick={startAll} className="neo-button flex-1 py-2 neo-green">
+          <Play size={14} className="inline mr-1" /> START ALL
+        </button>
+        <button onClick={stopAll} className="neo-button flex-1 py-2 neo-pink">
+          <Square size={14} className="inline mr-1" /> STOP ALL
+        </button>
+      </div>
+    </div>
+  );
+};
 
 // --- Timeline Tab ---
 const TimelineTab = () => {

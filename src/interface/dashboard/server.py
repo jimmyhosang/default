@@ -597,6 +597,107 @@ async def get_content_detail(content_id: int) -> Dict[str, Any]:
     return content_data
 
 
+# === Capture Daemon Control ===
+import subprocess
+import signal
+
+# Track running capture processes
+capture_processes: Dict[str, subprocess.Popen] = {}
+
+@app.get("/api/capture/status")
+async def get_capture_status() -> Dict[str, Any]:
+    """Get the status of all capture daemons."""
+    status = {}
+    for name in ['screen', 'clipboard', 'file']:
+        proc = capture_processes.get(name)
+        if proc and proc.poll() is None:
+            status[name] = {
+                'running': True,
+                'pid': proc.pid
+            }
+        else:
+            status[name] = {
+                'running': False,
+                'pid': None
+            }
+    return status
+
+
+@app.post("/api/capture/start/{daemon_name}")
+async def start_capture_daemon(daemon_name: str) -> Dict[str, Any]:
+    """Start a specific capture daemon."""
+    if daemon_name not in ['screen', 'clipboard', 'file']:
+        raise HTTPException(status_code=400, detail=f"Unknown daemon: {daemon_name}")
+    
+    # Check if already running
+    proc = capture_processes.get(daemon_name)
+    if proc and proc.poll() is None:
+        return {"status": "already_running", "pid": proc.pid}
+    
+    # Map daemon names to modules
+    module_map = {
+        'screen': 'src.capture.screen_capture',
+        'clipboard': 'src.capture.clipboard_monitor', 
+        'file': 'src.capture.file_watcher'
+    }
+    
+    # Start the daemon
+    import sys
+    venv_python = Path(__file__).parent.parent.parent.parent / "venv" / "bin" / "python"
+    python_exe = str(venv_python) if venv_python.exists() else sys.executable
+    
+    proc = subprocess.Popen(
+        [python_exe, "-m", module_map[daemon_name]],
+        cwd=str(Path(__file__).parent.parent.parent.parent),
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL
+    )
+    capture_processes[daemon_name] = proc
+    
+    return {"status": "started", "pid": proc.pid}
+
+
+@app.post("/api/capture/stop/{daemon_name}")
+async def stop_capture_daemon(daemon_name: str) -> Dict[str, Any]:
+    """Stop a specific capture daemon."""
+    if daemon_name not in ['screen', 'clipboard', 'file']:
+        raise HTTPException(status_code=400, detail=f"Unknown daemon: {daemon_name}")
+    
+    proc = capture_processes.get(daemon_name)
+    if not proc or proc.poll() is not None:
+        return {"status": "not_running"}
+    
+    # Send SIGTERM to gracefully stop
+    proc.terminate()
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+    
+    capture_processes[daemon_name] = None
+    return {"status": "stopped"}
+
+
+@app.post("/api/capture/start-all")
+async def start_all_daemons() -> Dict[str, Any]:
+    """Start all capture daemons."""
+    results = {}
+    for name in ['screen', 'clipboard', 'file']:
+        result = await start_capture_daemon(name)
+        results[name] = result
+    return results
+
+
+@app.post("/api/capture/stop-all")
+async def stop_all_daemons() -> Dict[str, Any]:
+    """Stop all capture daemons."""
+    results = {}
+    for name in ['screen', 'clipboard', 'file']:
+        result = await stop_capture_daemon(name)
+        results[name] = result
+    return results
+
+
 # === Catch-all route for SPA (must be last) ===
 @app.get("/{full_path:path}")
 async def serve_react_app(full_path: str):
